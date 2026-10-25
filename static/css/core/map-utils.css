@@ -1,0 +1,257 @@
+/* ============================================================
+   MAP UTILS — Tactical overlay styles
+   Used by all map-using pages via map-utils.js
+   ============================================================ */
+
+/* --- HUD panel base ---
+   Absolutely positioned dark-glass panels over the Leaflet map container.
+   The map container already has position:relative set by Leaflet.           */
+
+.map-hud-panel {
+    position: absolute;
+    z-index: 1000;
+    padding: 6px 10px;
+    background: rgba(7, 9, 14, 0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(var(--accent-cyan-rgb), 0.18);
+    border-radius: 4px;
+    font-family: var(--font-data);
+    font-size: 11px;
+    color: var(--text-secondary, #8ba0b8);
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 1.4;
+}
+
+/* Top-left: mode name + contact count */
+.map-hud-tl {
+    top: 10px;
+    left: 10px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.map-hud-mode {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim, #5a7080);
+}
+
+.map-hud-count {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent-cyan, #4aa3ff);
+    line-height: 1;
+}
+
+/* Top-right: UTC clock + status dot */
+.map-hud-tr {
+    top: 10px;
+    right: 10px;
+    gap: 6px;
+}
+
+.map-hud-clock {
+    color: var(--text-secondary, #8ba0b8);
+    font-size: 11px;
+}
+
+.map-hud-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim, #5a7080);
+    flex-shrink: 0;
+}
+
+.map-hud-dot.online {
+    background: var(--status-online, #38c180);
+    box-shadow: 0 0 4px var(--status-online, #38c180);
+}
+
+.map-hud-dot.offline {
+    background: var(--status-error, #e85d5d);
+}
+
+/* --- Observer reticle ---
+   Rendered as a Leaflet divIcon; no extra CSS needed beyond pointer-events. */
+
+.map-reticle {
+    pointer-events: none !important;
+    background: none !important;
+    border: none !important;
+}
+
+/* --- Range ring labels --- */
+
+.map-range-label {
+    pointer-events: none !important;
+    background: none !important;
+    border: none !important;
+}
+
+.map-range-label span {
+    display: inline-block;
+    background: rgba(7, 9, 14, 0.7);
+    color: rgba(var(--accent-cyan-rgb), 0.7);
+    font-family: var(--font-data);
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    white-space: nowrap;
+}
+
+/* --- Graticule toggle button ---
+   Rendered as a Leaflet control (bottomleft by default).                       */
+
+.map-graticule-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    background: rgba(7, 9, 14, 0.82);
+    border: 1px solid rgba(var(--accent-cyan-rgb, 74 163 255), 0.2);
+    border-radius: 4px;
+    color: rgba(var(--accent-cyan-rgb, 74 163 255), 0.45);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.map-graticule-btn:hover {
+    background: rgba(7, 9, 14, 0.95);
+    border-color: rgba(var(--accent-cyan-rgb, 74 163 255), 0.5);
+    color: rgba(var(--accent-cyan-rgb, 74 163 255), 0.8);
+}
+
+.map-graticule-btn.active {
+    background: rgba(var(--accent-cyan-rgb, 74 163 255), 0.12);
+    border-color: rgba(var(--accent-cyan-rgb, 74 163 255), 0.55);
+    color: var(--accent-cyan, #4aa3ff);
+}
+
+/* --- Dark glass popup ---
+   Applied via MapUtils.glassPopupOptions() className.                        */
+
+.map-glass-popup .leaflet-popup-content-wrapper {
+    background: var(--bg-elevated, #161d28) !important;
+    border: 1px solid var(--border-color, rgba(var(--accent-cyan-rgb),0.15)) !important;
+    border-radius: 6px !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    padding: 0;
+}
+
+.map-glass-popup .leaflet-popup-content {
+    margin: 0;
+    font-family: var(--font-data);
+    font-size: 11px;
+    color: var(--text-primary, #c8d8e8);
+}
+
+.map-glass-popup .leaflet-popup-tip-container {
+    display: none;
+}
+
+.map-glass-popup .leaflet-popup-close-button {
+    color: var(--text-dim, #5a7080);
+    font-size: 16px;
+    padding: 4px 6px;
+}
+
+.map-glass-popup .leaflet-popup-close-button:hover {
+    color: var(--text-primary, #c8d8e8);
+}
+
+/* The top-left HUD sat on top of Leaflet's zoom control (both 10 px from the
+   corner), hiding its + button; the control moves down below the HUD */
+.leaflet-container:has(> .map-hud-tl) .leaflet-top.leaflet-left {
+    top: 52px;
+}
+
+/* Aircraft and vessel markers (components/track-icons.js) */
+.ti-marker .ti-shape {
+    display: block;
+    overflow: visible;
+    /* A dark outline, so the shape reads over satellite imagery */
+    filter: drop-shadow(0 0 0.6px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 1.2px rgba(0, 0, 0, 0.7));
+    transition: opacity 0.4s ease;
+}
+
+.ti-marker.selected .ti-shape {
+    filter: drop-shadow(0 0 0.6px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px rgba(255, 255, 255, 0.85));
+}
+
+/* Not heard for 20 s (set by the page) */
+.ti-marker.ti-stale .ti-shape {
+    opacity: 0.4;
+}
+
+/* Emergency squawk (7500 / 7600 / 7700) */
+.ti-emergency {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 34px;
+    height: 34px;
+    margin: -17px 0 0 -17px;
+    border: 2px solid #ff3b3b;
+    border-radius: 50%;
+    animation: ti-pulse 1.2s ease-out infinite;
+    pointer-events: none;
+}
+
+@keyframes ti-pulse {
+    from { transform: scale(0.6); opacity: 1; }
+    to { transform: scale(1.4); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ti-emergency { animation: none; }
+}
+
+/* Heading line: where the contact will be in a minute */
+.ti-vector {
+    stroke-linecap: round;
+    stroke-dasharray: 5 4;
+}
+
+/* Labels beside markers (TrackIcons.labels shows them from a zoom level) */
+.ti-label {
+    position: absolute;
+    left: calc(100% + 4px);
+    top: 50%;
+    transform: translateY(-50%);
+    display: none;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(6, 12, 18, 0.78);
+    color: #e6edf5;
+    font: 600 10px/1.4 var(--font-mono, monospace);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.ti-labels-on .ti-label {
+    display: block;
+}
+
+.ti-labels-on .ti-label.ti-label-hidden {
+    display: none;
+}
+
+/* A ship drawn to scale, and its icon hidden under it */
+.ti-hull {
+    cursor: pointer;
+}
+
+.ti-marker.ti-under-hull .ti-shape {
+    opacity: 0;
+}

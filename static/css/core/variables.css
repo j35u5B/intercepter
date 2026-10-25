@@ -1,0 +1,402 @@
+/**
+ * INTERCEPT Design Tokens
+ * Single source of truth for colors, spacing, typography, and effects
+ * Import this file FIRST in any stylesheet that needs design tokens
+ */
+
+:root {
+    /* A panel set into the page: darker in the dark theme, a faint tint in light */
+    --surface-sunken: rgba(0, 0, 0, 0.3);
+    --surface-sunken-soft: rgba(0, 0, 0, 0.2);
+    /* ============================================
+       COLOR PALETTE - Dark Theme (Default)
+       ============================================ */
+
+    /* Backgrounds - layered depth system */
+    --bg-primary: #07090e;
+    --bg-secondary: #0b1018;
+    --bg-tertiary: #101520;
+    --bg-card: #0d1219;
+    --bg-elevated: #161d28;
+    --bg-overlay: rgba(8, 13, 20, 0.75);
+    --surface-glass: rgba(16, 25, 37, 0.82);
+    --surface-panel-gradient: linear-gradient(160deg, rgba(20, 32, 47, 0.94) 0%, rgba(11, 18, 27, 0.96) 100%);
+    --ambient-top-left: rgba(var(--accent-cyan-rgb), 0.14);
+    --ambient-top-right: rgba(56, 193, 128, 0.09);
+    --ambient-bottom: rgba(214, 168, 94, 0.06);
+
+    /* Background aliases for components */
+    --bg-dark: var(--bg-primary);
+    --bg-panel: var(--bg-secondary);
+
+    /* Accent colors */
+    --accent-cyan: #4aa3ff;
+    --accent-cyan-rgb: 74, 163, 255;
+    --primary-color: var(--accent-cyan);
+    --accent-cyan-dim: rgba(var(--accent-cyan-rgb), 0.16);
+    --accent-cyan-hover: #6bb3ff;
+    --accent-cyan-glow: rgba(var(--accent-cyan-rgb), 0.12);
+    --accent-green: #38c180;
+    --accent-green-hover: #16a34a;
+    --accent-green-dim: rgba(56, 193, 128, 0.18);
+    --accent-red: #e25d5d;
+    --accent-red-hover: #dc2626;
+    --accent-red-dim: rgba(226, 93, 93, 0.16);
+    --accent-orange: #d6a85e;
+    --accent-orange-dim: rgba(214, 168, 94, 0.16);
+    --accent-amber: #d6a85e;
+    --accent-amber-dim: rgba(214, 168, 94, 0.18);
+    --accent-yellow: #e1c26b;
+    --accent-purple: #8f7bd6;
+    --accent-purple-rgb: 143, 123, 214;
+    --accent-green-rgb: 56, 193, 128;
+
+    /* Text hierarchy */
+    --text-primary: #d7e0ee;
+    --text-secondary: #9fb0c7;
+    --text-dim: #7d8da2;
+    --text-muted: #6c7d92;  /* 4.5:1 on the page (was 2.5:1) */
+    --text-inverse: #0b1118;
+
+    /* Borders */
+    --border-color: #263246;
+    --border-light: #354458;
+    --border-glow: rgba(var(--accent-cyan-rgb), 0.25);
+    --border-focus: var(--accent-cyan);
+
+    /* Status colors */
+    --status-online: #38c180;
+    --status-warning: #d6a85e;
+    --status-error: #e25d5d;
+    --status-offline: #6f7f94;
+    --status-info: #4aa3ff;
+
+    /* Severity colors */
+    --severity-critical: #ff3366;
+    --severity-high: #ff9933;
+    --severity-medium: #ffcc00;
+    --severity-low: #00ff88;
+
+    /* Data visualization neon colors */
+    --neon-green: #00ff88;
+    --neon-yellow: #ffcc00;
+    --neon-orange: #ff8800;
+    --neon-red: #ff3366;
+
+    /* Subtle grid/pattern */
+    --grid-line: rgba(var(--accent-cyan-rgb), 0.1);
+    --grid-dot: rgba(255, 255, 255, 0.03);
+    --noise-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='40'%20height='40'%20viewBox='0%200%2040%2040'%3E%3Cg%20fill='%23ffffff'%20fill-opacity='0.05'%3E%3Ccircle%20cx='3'%20cy='5'%20r='1'/%3E%3Ccircle%20cx='11'%20cy='9'%20r='1'/%3E%3Ccircle%20cx='18'%20cy='3'%20r='1'/%3E%3Ccircle%20cx='26'%20cy='12'%20r='1'/%3E%3Ccircle%20cx='34'%20cy='6'%20r='1'/%3E%3Ccircle%20cx='7'%20cy='19'%20r='1'/%3E%3Ccircle%20cx='15'%20cy='24'%20r='1'/%3E%3Ccircle%20cx='28'%20cy='22'%20r='1'/%3E%3Ccircle%20cx='36'%20cy='18'%20r='1'/%3E%3Ccircle%20cx='5'%20cy='33'%20r='1'/%3E%3Ccircle%20cx='19'%20cy='32'%20r='1'/%3E%3Ccircle%20cx='31'%20cy='34'%20r='1'/%3E%3C/g%3E%3C/svg%3E");
+
+    /* Scanline overlay texture */
+    --scanline: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.04) 2px,
+        rgba(0, 0, 0, 0.04) 4px
+    );
+
+    /* ============================================
+       SPACING SCALE
+       ============================================ */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
+
+    /* ============================================
+       TYPOGRAPHY
+       ============================================ */
+    --font-sans: 'Inter', 'Roboto Condensed', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', Consolas, monospace;
+    /* True monospace for data: MACs, hex, coordinates, IDs, readings, raw text.
+       Distinct from --font-mono, which the SPA/dashboards remap to a condensed
+       sans for labels/readouts. Defined once here; never override per-page. */
+    --font-data: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', Consolas, monospace;
+
+    /* Font sizes */
+    --text-xs: 10px;
+    --text-sm: 12px;
+    --text-base: 14px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+    --text-2xl: 20px;
+    --text-3xl: 24px;
+    --text-4xl: 30px;
+
+    /* Font weights */
+    --font-normal: 400;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-bold: 700;
+
+    /* Line heights */
+    --leading-tight: 1.25;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.75;
+
+    /* ============================================
+       BORDERS & RADIUS
+       ============================================ */
+    --radius-sm: 3px;
+    --radius-md: 4px;
+    --radius-lg: 6px;
+    --radius-xl: 8px;
+    --radius-full: 9999px;
+
+    /* ============================================
+       SHADOWS
+       ============================================ */
+    --shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 12px 18px rgba(0, 0, 0, 0.45);
+    --shadow-glow: 0 0 18px rgba(var(--accent-cyan-rgb), 0.16);
+
+    /* ============================================
+       TRANSITIONS
+       ============================================ */
+    --transition-fast: 150ms ease;
+    --transition-base: 200ms ease;
+    --transition-slow: 300ms ease;
+
+    /* ============================================
+       Z-INDEX SCALE
+       ============================================ */
+    --z-base: 0;
+    --z-dropdown: 100;
+    --z-sticky: 200;
+    --z-fixed: 300;
+    --z-modal-backdrop: 400;
+    --z-modal: 500;
+    --z-toast: 600;
+    --z-tooltip: 700;
+
+    /* ============================================
+       LAYOUT
+       ============================================ */
+    --header-height: 48px;
+    --nav-height: 44px;
+    --sidebar-width: 280px;
+    --stats-strip-height: 36px;
+    --content-max-width: 1400px;
+}
+
+/* ============================================
+   REDUCED MOTION
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --transition-fast: 0ms;
+        --transition-base: 0ms;
+        --transition-slow: 0ms;
+    }
+}
+
+/* ============================================
+   LEAN TIER — flat dark, no GPU effects
+   ============================================ */
+html[data-ui-tier="lean"] {
+    --bg-primary: #111111;
+    --bg-secondary: #181818;
+    --bg-tertiary: #1f1f1f;
+    --bg-card: #1a1a1a;
+    --bg-elevated: #202020;
+    --bg-overlay: rgba(17, 17, 17, 0.92);
+    --surface-glass: #181818;
+    --surface-panel-gradient: #181818;
+
+    --ambient-top-left: transparent;
+    --ambient-top-right: transparent;
+    --ambient-bottom: transparent;
+
+    --border-color: #2a2a2a;
+    --border-light: #333333;
+    --border-glow: transparent;
+
+    --shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.3);
+    --shadow-glow: none;
+
+    --transition-fast: 0ms;
+    --transition-base: 0ms;
+    --transition-slow: 0ms;
+
+    --scanline: none;
+    --grid-line: transparent;
+    --noise-image: none;
+}
+
+/* ============================================
+   ENHANCED TIER — signals teal console
+   ============================================ */
+html[data-ui-tier="enhanced"] {
+    --bg-primary: #000000;
+    --bg-secondary: #020404;
+    --bg-tertiary: #040808;
+    --bg-card: #020404;
+    --bg-elevated: #060a0a;
+    --bg-overlay: rgba(0, 0, 0, 0.88);
+    --surface-glass: rgba(2, 4, 4, 0.90);
+    --surface-panel-gradient: linear-gradient(160deg, rgba(6, 10, 10, 0.96) 0%, rgba(2, 4, 4, 0.98) 100%);
+
+    --accent-cyan: #35919f;  /* 5:1 as text on black (was 4:1) */
+    --accent-cyan-rgb: 53, 145, 159;
+    --accent-cyan-dim: rgba(46, 125, 138, 0.14);
+    --accent-cyan-hover: #3a9aaa;
+    --accent-cyan-glow: rgba(46, 125, 138, 0.09);
+
+    /* red/green intentionally unchanged — semantic status only */
+
+    --ambient-top-left: rgba(46, 125, 138, 0.07);
+    --ambient-top-right: rgba(46, 125, 138, 0.04);
+    --ambient-bottom: rgba(46, 125, 138, 0.03);
+
+    --grid-line: rgba(46, 125, 138, 0.07);
+    --border-color: rgba(46, 125, 138, 0.18);
+    --border-light: rgba(46, 125, 138, 0.28);
+    --border-glow: rgba(46, 125, 138, 0.20);
+    --border-focus: #2e7d8a;
+
+    --status-info: #2e7d8a;
+
+    --font-sans: 'Inter', 'Roboto Condensed', 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ============================================
+   LIGHT THEME OVERRIDES
+   Placed after tier blocks so html[data-theme="light"]
+   (specificity 0,1,1) beats both tier selectors when active.
+   ============================================ */
+html[data-theme="light"] {
+    --surface-sunken: rgba(12, 18, 24, 0.04);
+    --surface-sunken-soft: rgba(12, 18, 24, 0.03);
+    --bg-primary: #f4f7fb;
+    --bg-secondary: #e9eef5;
+    --bg-tertiary: #dde5f0;
+    --bg-card: #ffffff;
+    --bg-elevated: #f1f4f9;
+    --bg-overlay: rgba(244, 247, 251, 0.92);
+    --surface-glass: rgba(255, 255, 255, 0.84);
+    --surface-panel-gradient: linear-gradient(160deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 251, 0.97) 100%);
+    --ambient-top-left: rgba(31, 95, 168, 0.1);
+    --ambient-top-right: rgba(31, 138, 87, 0.06);
+    --ambient-bottom: rgba(181, 134, 58, 0.05);
+
+    --bg-dark: var(--bg-primary);
+    --bg-panel: var(--bg-secondary);
+
+    --accent-cyan: #1f5fa8;
+    --accent-cyan-rgb: 31, 95, 168;
+    --accent-cyan-dim: rgba(31, 95, 168, 0.12);
+    --accent-cyan-hover: #2c73bf;
+    --accent-green: #1f8a57;
+    --accent-green-hover: #167a4a;
+    --accent-green-dim: rgba(31, 138, 87, 0.12);
+    --accent-red: #c74444;
+    --accent-red-hover: #b33a3a;
+    --accent-red-dim: rgba(199, 68, 68, 0.12);
+    --accent-orange: #b5863a;
+    --accent-orange-dim: rgba(181, 134, 58, 0.12);
+    --accent-amber: #b5863a;
+    --accent-amber-dim: rgba(181, 134, 58, 0.12);
+    --accent-yellow: #9a8420;
+    --accent-purple: #6b5ba8;
+
+    --status-online: #1f8a57;
+    --status-warning: #b5863a;
+    --status-error: #c74444;
+    --status-offline: #6b7c93;
+    --status-info: #1f5fa8;
+
+    --severity-critical: #c74444;
+    --severity-high: #b5863a;
+    --severity-medium: #9a8420;
+    --severity-low: #1f8a57;
+
+    --neon-green: #1a8a50;
+    --neon-yellow: #9a8420;
+    --neon-orange: #b5863a;
+    --neon-red: #c74444;
+
+    --text-primary: #122034;
+    --text-secondary: #3a4a5f;
+    --text-dim: #566a7f;
+    --text-muted: #5f6f84;
+    --text-inverse: #f4f7fb;
+
+    --border-color: #d1d9e6;
+    --border-light: #c1ccdb;
+    --border-glow: rgba(31, 95, 168, 0.12);
+
+    --grid-line: rgba(31, 95, 168, 0.14);
+    --grid-dot: rgba(12, 18, 24, 0.06);
+    --noise-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='40'%20height='40'%20viewBox='0%200%2040%2040'%3E%3Cg%20fill='%23000000'%20fill-opacity='0.05'%3E%3Ccircle%20cx='3'%20cy='5'%20r='1'/%3E%3Ccircle%20cx='11'%20cy='9'%20r='1'/%3E%3Ccircle%20cx='18'%20cy='3'%20r='1'/%3E%3Ccircle%20cx='26'%20cy='12'%20r='1'/%3E%3Ccircle%20cx='34'%20cy='6'%20r='1'/%3E%3Ccircle%20cx='7'%20cy='19'%20r='1'/%3E%3Ccircle%20cx='15'%20cy='24'%20r='1'/%3E%3Ccircle%20cx='28'%20cy='22'%20r='1'/%3E%3Ccircle%20cx='36'%20cy='18'%20r='1'/%3E%3Ccircle%20cx='5'%20cy='33'%20r='1'/%3E%3Ccircle%20cx='19'%20cy='32'%20r='1'/%3E%3Ccircle%20cx='31'%20cy='34'%20r='1'/%3E%3C/g%3E%3C/svg%3E");
+
+    --accent-cyan-glow: rgba(31, 95, 168, 0.08);
+    --scanline: none;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.15);
+    --shadow-glow: 0 0 18px rgba(31, 95, 168, 0.1);
+}
+
+/* Lean tier + light: specificity (0,2,1) beats lean-only (0,1,1) */
+html[data-ui-tier="lean"][data-theme="light"] {
+    --bg-primary: #f4f7fb;
+    --bg-secondary: #e9eef5;
+    --bg-tertiary: #dde5f0;
+    --bg-card: #ffffff;
+    --bg-elevated: #f1f4f9;
+    --bg-dark: #f4f7fb;
+    --bg-panel: #e9eef5;
+    --bg-overlay: rgba(244, 247, 251, 0.92);
+    --surface-glass: rgba(255, 255, 255, 0.84);
+    --surface-panel-gradient: linear-gradient(160deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 251, 0.97) 100%);
+    --accent-cyan: #1f5fa8;
+    --accent-cyan-rgb: 31, 95, 168;
+    --accent-cyan-dim: rgba(31, 95, 168, 0.12);
+    --accent-green: #1f8a57;
+    --text-primary: #122034;
+    --text-secondary: #3a4a5f;
+    --text-dim: #566a7f;
+    --text-muted: #5f6f84;
+    --border-color: #d1d9e6;
+    --border-light: #c1ccdb;
+    --border-glow: rgba(31, 95, 168, 0.12);
+    --grid-line: rgba(31, 95, 168, 0.14);
+    --ambient-top-left: rgba(31, 95, 168, 0.1);
+    --ambient-top-right: rgba(31, 138, 87, 0.06);
+    --ambient-bottom: rgba(181, 134, 58, 0.05);
+}
+
+/* Enhanced tier + light: cool whites with signals teal accents */
+html[data-ui-tier="enhanced"][data-theme="light"] {
+    --bg-primary: #f4f7fb;
+    --bg-secondary: #e9eef5;
+    --bg-tertiary: #dde5f0;
+    --bg-card: #ffffff;
+    --bg-elevated: #f1f4f9;
+    --bg-dark: #f4f7fb;
+    --bg-panel: #e9eef5;
+    --bg-overlay: rgba(244, 247, 251, 0.92);
+    --surface-glass: rgba(255, 255, 255, 0.84);
+    --text-primary: #0a1a1e;
+    --text-secondary: #1c3a42;
+    --text-dim: #3a5a62;
+    --border-color: rgba(30, 100, 112, 0.28);
+    --grid-line: rgba(30, 100, 112, 0.12);
+    --accent-cyan: #1e6470;
+    --accent-cyan-rgb: 30, 100, 112;
+    --accent-cyan-dim: rgba(30, 100, 112, 0.12);
+    --accent-cyan-hover: #25808e;
+    --accent-cyan-glow: rgba(30, 100, 112, 0.08);
+}

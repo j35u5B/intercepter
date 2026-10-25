@@ -1,0 +1,302 @@
+"""RTL_433 sensor monitoring routes."""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import queue
+import subprocess
+import threading
+import time
+from datetime import datetime
+
+from flask import Blueprint, Response, jsonify, request
+
+import app as app_module
+from utils.dependencies import install_hint
+from utils.logging import sensor_logger as logger
+from utils.observations import emit_observation
+from utils.process import register_process, terminate_together, unregister_process
+from utils.responses import api_error, api_success
+from utils.sdr import SDRFactory, SDRType
+from utils.sdr.device_config import apply_device_defaults
+from utils.sse import sse_stream_fanout
+from utils.validation import (
+    validate_device_index,
+    validate_frequency,
+    validate_gain,
+    validate_ppm,
+    validate_rtl_tcp_host,
+    validate_rtl_tcp_port,
+    validate_sensor_units,
+)
+
+sensor_bp = Blueprint("sensor", __name__)
+
+# Track which device is being used
+sensor_active_device: int | None = None
+sensor_active_sdr_type: str | None = None
+
+# RSSI history per device (model_id -> list of (timestamp, rssi))
+sensor_rssi_history: dict[str, list[tuple[float, float]]] = {}
+_MAX_RSSI_HISTORY = 60
+
+
+def stream_sensor_output(process: subprocess.Popen[bytes]) -> None:
+    """Stream rtl_433 JSON output to queue."""
+    try:
+        app_module.sensor_queue.put({"type": "status", "text": "started"})
+
+        for line in iter(process.stdout.readline, b""):
+            line = line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+
+            try:
+                # rtl_433 outputs JSON objects, one per line
+                data = json.loads(line)
+                data["type"] = "sensor"
+                app_module.sensor_queue.put(data)
+
+                # Activity feed: emitted here, at ingestion, so it is recorded
+                # whether or not a browser is subscribed to the stream.
+                if data.get("model"):
+                    sensor_id = ":".join(
+                        str(p) for p in (data["model"], data.get("id"), data.get("channel")) if p not in (None, "")
+                    )
+                    emit_observation(
+                        "sensor", sensor_id, rssi=data.get("rssi"), summary=data["model"], raw=data, direct=True
+                    )
+
+                # Track RSSI history per device
+                _model = data.get("model", "")
+                _dev_id = data.get("id", "")
+                _rssi_val = data.get("rssi")
+                if _rssi_val is not None and _model:
+                    _hist_key = f"{_model}_{_dev_id}"
+                    hist = sensor_rssi_history.setdefault(_hist_key, [])
+                    hist.append((time.time(), float(_rssi_val)))
+                    if len(hist) > _MAX_RSSI_HISTORY:
+                        del hist[: len(hist) - _MAX_RSSI_HISTORY]
+
+                # Log if enabled
+                if app_module.logging_enabled:
+                    try:
+                        with open(app_module.log_file_path, "a") as f:
+                            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            f.write(f"{timestamp} | {data.get('model', 'Unknown')} | {json.dumps(data)}\n")
+                    except Exception:
+                        pass
+            except json.JSONDecodeError:
+                # Not JSON, send as raw
+                app_module.sensor_queue.put({"type": "raw", "text": line})
+
+    except Exception as e:
+        app_module.sensor_queue.put({"type": "error", "text": str(e)})
+    finally:
+        global sensor_active_device, sensor_active_sdr_type
+        # Ensure process is terminated
+        try:
+            process.terminate()
+            process.wait(timeout=2)
+        except Exception:
+            with contextlib.suppress(Exception):
+                process.kill()
+        unregister_process(process)
+        app_module.sensor_queue.put({"type": "status", "text": "stopped"})
+        with app_module.sensor_lock:
+            app_module.sensor_process = None
+        # Release SDR device
+        if sensor_active_device is not None:
+            app_module.release_sdr_device(sensor_active_device, sensor_active_sdr_type or "rtlsdr")
+            sensor_active_device = None
+            sensor_active_sdr_type = None
+
+
+@sensor_bp.route("/sensor/status")
+def sensor_status() -> Response:
+    """Check if sensor decoder is currently running."""
+    with app_module.sensor_lock:
+        running = app_module.sensor_process is not None and app_module.sensor_process.poll() is None
+    return jsonify({"running": running})
+
+
+@sensor_bp.route("/start_sensor", methods=["POST"])
+def start_sensor() -> Response:
+    global sensor_active_device, sensor_active_sdr_type
+
+    with app_module.sensor_lock:
+        if app_module.sensor_process:
+            return api_error("Sensor already running", 409)
+
+        data = request.json or {}
+        data = apply_device_defaults(data)
+
+        # Validate inputs
+        try:
+            freq = validate_frequency(data.get("frequency", "433.92"))
+            gain = validate_gain(data.get("gain", "0"))
+            ppm = validate_ppm(data.get("ppm", "0"))
+            device = validate_device_index(data.get("device", "0"))
+            units = validate_sensor_units(data.get("units", "si"))
+        except ValueError as e:
+            return api_error(str(e), 400)
+
+        # Check for rtl_tcp (remote SDR) connection
+        rtl_tcp_host = data.get("rtl_tcp_host")
+        rtl_tcp_port = data.get("rtl_tcp_port", 1234)
+
+        # Get SDR type early so we can pass it to claim/release
+        sdr_type_str = data.get("sdr_type", "rtlsdr")
+
+        # Claim local device if not using remote rtl_tcp
+        if not rtl_tcp_host:
+            device_int = int(device)
+            error = app_module.claim_sdr_device(device_int, "sensor", sdr_type_str)
+            if error:
+                return api_error(error, 409, error_type="DEVICE_BUSY")
+            sensor_active_device = device_int
+            sensor_active_sdr_type = sdr_type_str
+
+        # Clear queue
+        while not app_module.sensor_queue.empty():
+            try:
+                app_module.sensor_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        # Build command via SDR abstraction layer
+        try:
+            sdr_type = SDRType(sdr_type_str)
+        except ValueError:
+            sdr_type = SDRType.RTL_SDR
+
+        if rtl_tcp_host:
+            # Validate and create network device
+            try:
+                rtl_tcp_host = validate_rtl_tcp_host(rtl_tcp_host)
+                rtl_tcp_port = validate_rtl_tcp_port(rtl_tcp_port)
+            except ValueError as e:
+                return api_error(str(e), 400)
+
+            sdr_device = SDRFactory.create_network_device(rtl_tcp_host, rtl_tcp_port)
+            logger.info(f"Using remote SDR: rtl_tcp://{rtl_tcp_host}:{rtl_tcp_port}")
+        else:
+            # Create local device object
+            sdr_device = SDRFactory.create_default_device(sdr_type, index=device)
+
+        builder = SDRFactory.get_builder(sdr_device.sdr_type)
+
+        # Build ISM band decoder command
+        bias_t = data.get("bias_t", False)
+        cmd = builder.build_ism_command(
+            device=sdr_device,
+            frequency_mhz=freq,
+            gain=float(gain) if gain and gain != 0 else None,
+            ppm=int(ppm) if ppm and ppm != 0 else None,
+            bias_t=bias_t,
+        )
+
+        full_cmd = " ".join(cmd)
+        logger.info(f"Running: {full_cmd}")
+
+        # Add signal level metadata so the frontend scope can display RSSI/SNR
+        # Disable stats reporting to suppress "row count limit 50 reached" warnings
+        cmd.extend(["-M", "level", "-M", "stats:0"])
+
+        # Unit conversion: let rtl_433 normalise units rather than converting
+        # in the frontend, so logged and displayed values always agree.
+        cmd.extend(["-C", units])
+
+        try:
+            app_module.sensor_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            register_process(app_module.sensor_process)
+
+            # Start output thread
+            thread = threading.Thread(target=stream_sensor_output, args=(app_module.sensor_process,))
+            thread.daemon = True
+            thread.start()
+
+            # Monitor stderr
+            # Filter noisy rtl_433 diagnostics that aren't useful to display
+            _stderr_noise = (
+                "bitbuffer_add_bit",
+                "row count limit",
+            )
+
+            def monitor_stderr():
+                for line in app_module.sensor_process.stderr:
+                    err = line.decode("utf-8", errors="replace").strip()
+                    if err and not any(noise in err for noise in _stderr_noise):
+                        logger.debug(f"[rtl_433] {err}")
+                        app_module.sensor_queue.put({"type": "info", "text": f"[rtl_433] {err}"})
+
+            stderr_thread = threading.Thread(target=monitor_stderr)
+            stderr_thread.daemon = True
+            stderr_thread.start()
+
+            app_module.sensor_queue.put({"type": "info", "text": f"Command: {full_cmd}"})
+
+            return jsonify({"status": "started", "command": full_cmd})
+
+        except FileNotFoundError:
+            # Release device on failure
+            if sensor_active_device is not None:
+                app_module.release_sdr_device(sensor_active_device, sensor_active_sdr_type or "rtlsdr")
+                sensor_active_device = None
+                sensor_active_sdr_type = None
+            return api_error(f"rtl_433 not found. {install_hint('rtl_433')}")
+        except Exception as e:
+            # Release device on failure
+            if sensor_active_device is not None:
+                app_module.release_sdr_device(sensor_active_device, sensor_active_sdr_type or "rtlsdr")
+                sensor_active_device = None
+                sensor_active_sdr_type = None
+            return api_error(str(e))
+
+
+@sensor_bp.route("/stop_sensor", methods=["POST"])
+def stop_sensor() -> Response:
+    global sensor_active_device, sensor_active_sdr_type
+
+    with app_module.sensor_lock:
+        if app_module.sensor_process:
+            # Waits until rtl_433 has exited, so the SDR is free when released
+            terminate_together([app_module.sensor_process])
+            app_module.sensor_process = None
+
+            # Release device from registry
+            if sensor_active_device is not None:
+                app_module.release_sdr_device(sensor_active_device, sensor_active_sdr_type or "rtlsdr")
+                sensor_active_device = None
+                sensor_active_sdr_type = None
+
+            return jsonify({"status": "stopped"})
+
+        return jsonify({"status": "not_running"})
+
+
+@sensor_bp.route("/stream_sensor")
+def stream_sensor() -> Response:
+    response = Response(
+        sse_stream_fanout(
+            source_queue=app_module.sensor_queue,
+            channel_key="sensor",
+            timeout=1.0,
+            keepalive_interval=30.0,
+        ),
+        mimetype="text/event-stream",
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Connection"] = "keep-alive"
+    return response
+
+
+@sensor_bp.route("/sensor/rssi_history")
+def get_rssi_history() -> Response:
+    """Return RSSI history for all tracked sensor devices."""
+    result = {}
+    for key, entries in sensor_rssi_history.items():
+        result[key] = [{"t": round(t, 1), "rssi": rssi} for t, rssi in entries]
+    return api_success(data={"devices": result})

@@ -1,0 +1,3846 @@
+<!DOCTYPE html>
+<html lang="en" class="{% if offline_settings.tile_provider in ['cartodb_dark', 'cartodb_dark_cyan'] %}map-cyber-enabled{% endif %}">
+<head>
+    <script src="{{ url_for('static', filename='js/core/visible-interval.js') }}"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SATELLITE COMMAND // INTERCEPT - See the Invisible</title>
+    <script>(function(){var t=localStorage.getItem('intercept-ui-tier')||'enhanced';document.documentElement.setAttribute('data-ui-tier',t);})();</script>
+    <!-- Dedicated dashboards always use bundled assets so navigation is not
+         blocked by external CDN reachability. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
+    <script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
+    <!-- Core CSS variables -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/satellite_dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/map-utils.css') }}">
+    <script>
+        window.INTERCEPT_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
+</head>
+<body data-mode="satellite">
+    <div class="grid-bg"></div>
+    <div class="scanline"></div>
+
+    <header class="header">
+        <div class="logo">
+            SATELLITE COMMAND
+            <span>// <span class="brand-i"><svg viewBox="36 14 28 68" width="1em" height="1em" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="20" r="6" fill="#00ff88"/><rect x="44" y="33" width="12" height="45" rx="2" fill="#00d4ff"/><rect x="38" y="33" width="24" height="4" rx="1" fill="#00d4ff"/><rect x="38" y="74" width="24" height="4" rx="1" fill="#00d4ff"/></svg></span>NTERCEPT - See the Invisible</span>
+        </div>
+        <div class="stats-badges">
+            <div class="stat-badge">
+                <span class="value" id="statTracked">7</span>
+                <span class="label">satellites</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value highlight" id="statVisible">0</span>
+                <span class="label">visible</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value" id="statPasses">0</span>
+                <span class="label">passes</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value" id="statMaxEl">0</span>
+                <span class="label">best el</span>
+            </div>
+        </div>
+        <div class="status-bar">
+            <!-- Location Source Selector -->
+            <div class="location-selector" id="locationSection">
+                <span class="location-label">Location:</span>
+                <select id="locationSource" class="location-select" title="Select observer location">
+                    <option value="local">Local (This Device)</option>
+                </select>
+                <span class="location-status-dot online" id="locationStatusDot"></span>
+            </div>
+            <div class="status-item">
+                <div class="status-dot" id="trackingDot"></div>
+                <span id="trackingStatus">TRACKING</span>
+            </div>
+            <div class="datetime" id="utcTime">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    {% if not embedded %}
+    {% set active_mode = 'satellite' %}
+    {% include 'partials/nav.html' with context %}
+    {% endif %}
+
+    <main class="dashboard">
+        <section class="primary-layout">
+            <aside class="mission-drawer">
+                <div class="panel drawer-panel">
+                    <div class="panel-header">
+                        <span>MISSION CONTROL</span>
+                        <div class="panel-indicator"></div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="drawer-actions">
+                            <button class="drawer-action-btn drawer-action-btn-primary" onclick="showAddSatelliteModal()">ADD TLE</button>
+                            <button class="drawer-action-btn" onclick="fetchCelestrak()">CELESTRAK</button>
+                            <button class="drawer-action-btn" onclick="updateTLE()">REFRESH TLE</button>
+                        </div>
+                        <div class="drawer-status" id="satCommandStatus">Manage tracked satellites, refresh orbital data, and choose the receiver used by ground-station capture.</div>
+                    </div>
+                </div>
+
+                <div class="panel drawer-panel">
+                    <div class="panel-header">
+                        <span>SATELLITE DATABASE</span>
+                        <div class="panel-indicator"></div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="drawer-panel-tools">
+                            <span class="drawer-panel-kicker">Tracked satellites</span>
+                            <button class="drawer-action-btn drawer-action-btn-small" onclick="loadTrackedSatelliteCatalog()">REFRESH</button>
+                        </div>
+                        <div class="drawer-list" id="satTrackingList">
+                            <div class="drawer-empty-state ui-loading">Loading tracked satellites…</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel drawer-panel">
+                    <div class="panel-header">
+                        <span>GROUND STATION RX</span>
+                        <div class="panel-indicator"></div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="drawer-field">
+                            <label for="gsReceiverSelect">Receiver</label>
+                            <select id="gsReceiverSelect" class="drawer-select" onchange="onReceiverSelectionChange()">
+                                <option value="">Detecting SDRs...</option>
+                            </select>
+                        </div>
+                        <div class="drawer-field">
+                            <label>SDR Type</label>
+                            <div class="drawer-field-value" id="gsReceiverType">Waiting for device list...</div>
+                        </div>
+                        <div class="drawer-note" id="gsReceiverNote">Used when enabling the scheduler and when observation profiles start a capture.</div>
+                    </div>
+                </div>
+
+                <div class="panel drawer-panel">
+                    <div class="panel-header">
+                        <span>QUICK INFO</span>
+                        <div class="panel-indicator"></div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="drawer-info-grid">
+                            <div class="drawer-info-card">
+                                <div class="drawer-info-label">Selected Target</div>
+                                <div class="drawer-info-value" id="drawerSelectedSat">ISS (ZARYA)</div>
+                            </div>
+                            <div class="drawer-info-card">
+                                <div class="drawer-info-label">Observer</div>
+                                <div class="drawer-info-value" id="drawerObserver">51.5074, -0.1278</div>
+                            </div>
+                            <div class="drawer-info-card">
+                                <div class="drawer-info-label">Receiver</div>
+                                <div class="drawer-info-value" id="drawerReceiverSummary">Detecting...</div>
+                            </div>
+                            <div class="drawer-info-card">
+                                <div class="drawer-info-label">Next Pass</div>
+                                <div class="drawer-info-value" id="drawerNextPassSummary">Calculating...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Ground Track Map -->
+            <div class="panel map-container">
+                <div class="panel-header">
+                    <span>GROUND TRACK // WORLD VIEW</span>
+                    <div class="map-header-tools">
+                        <button class="map-mode-btn active" id="mapModeBothBtn" onclick="setMapViewMode('both')">BOTH</button>
+                        <button class="map-mode-btn" id="mapModePassBtn" onclick="setMapViewMode('pass')">PASS</button>
+                        <button class="map-mode-btn" id="mapModeLiveBtn" onclick="setMapViewMode('live')">LIVE</button>
+                        <button class="map-action-btn" onclick="fitMapToActiveTrack()">FIT</button>
+                        <button class="map-action-btn" id="mapFollowBtn" onclick="toggleMapFollow()">FOLLOW</button>
+                    </div>
+                </div>
+                <div class="panel-content map-panel-content">
+                    <div id="groundMap"></div>
+                    <div class="packet-console" id="packetConsole">
+                        <div class="packet-console-header">
+                            <span>DECODED PACKETS <span id="packetCount" style="color:var(--accent-cyan);"></span></span>
+                            <div class="packet-console-actions">
+                                <button class="packet-console-btn" id="packetConsoleToggleBtn" onclick="togglePacketConsoleCollapsed()">MIN</button>
+                                <button class="packet-console-btn" onclick="openPacketModal()">POP OUT</button>
+                            </div>
+                        </div>
+                        <div class="packet-console-body" id="packetList">
+                            <div class="packet-empty-state">
+                                No packets received yet.<br>Run a ground-station observation with telemetry tasks enabled to populate this console.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="map-overlay-card">
+                        <div class="map-overlay-kicker">TRACK VIEW</div>
+                        <div class="map-overlay-primary" id="mapTrackPrimary">Loading active orbit and pass corridor...</div>
+                        <div class="map-overlay-secondary" id="mapTrackSecondary">Use PASS, LIVE, or BOTH to switch the overlay view.</div>
+                        <div class="map-overlay-legend">
+                            <span class="map-legend-chip pass">PASS CORRIDOR</span>
+                            <span class="map-legend-chip live">LIVE ORBIT</span>
+                            <span class="map-legend-chip current">CURRENT SUBPOINT</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Command Rail -->
+            <aside class="command-rail">
+            <!-- Satellite Selector -->
+                <div class="satellite-selector">
+                    <label>TARGET:</label>
+                    <select id="satSelect" onchange="onSatelliteChange()">
+                        <option value="25544">ISS (ZARYA)</option>
+                        <option value="40069">METEOR-M2</option>
+                        <option value="57166">METEOR-M2-3</option>
+                        <option value="59051">METEOR-M2-4</option>
+                    </select>
+                    <button id="satRefreshBtn" onclick="loadDashboardSatellites()" title="Refresh satellite list">↺</button>
+                </div>
+
+                <!-- Countdown -->
+                <div class="panel countdown-panel">
+                    <div class="panel-header">
+                        <span>NEXT PASS</span>
+                        <div class="panel-indicator"></div>
+                    </div>
+                    <div class="countdown-display">
+                        <div class="next-pass-label">Incoming Signal</div>
+                        <div class="satellite-name" id="countdownSat">AWAITING DATA</div>
+                        <div class="countdown-grid">
+                            <div class="countdown-block">
+                                <div class="countdown-value" id="countDays">--</div>
+                                <div class="countdown-label">Days</div>
+                            </div>
+                            <div class="countdown-block">
+                                <div class="countdown-value" id="countHours">--</div>
+                                <div class="countdown-label">Hours</div>
+                            </div>
+                            <div class="countdown-block">
+                                <div class="countdown-value" id="countMins">--</div>
+                                <div class="countdown-label">Mins</div>
+                            </div>
+                            <div class="countdown-block">
+                                <div class="countdown-value" id="countSecs">--</div>
+                                <div class="countdown-label">Secs</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Telemetry -->
+                <div class="panel telemetry-panel">
+                    <div class="panel-header">
+                        <span>LIVE TELEMETRY</span>
+                        <div class="panel-indicator"></div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="telemetry-rows">
+                            <div class="telemetry-item">
+                                <div class="telemetry-label">Latitude</div>
+                                <div class="telemetry-value" id="telLat">---.----</div>
+                            </div>
+                            <div class="telemetry-item">
+                                <div class="telemetry-label">Longitude</div>
+                                <div class="telemetry-value" id="telLon">---.----</div>
+                            </div>
+                            <div class="telemetry-item">
+                                <div class="telemetry-label">Altitude</div>
+                                <div class="telemetry-value" id="telAlt">--- km</div>
+                            </div>
+                            <div class="telemetry-item">
+                                <div class="telemetry-label">Elevation</div>
+                                <div class="telemetry-value" id="telEl">--.-</div>
+                            </div>
+                            <div class="telemetry-item">
+                                <div class="telemetry-label">Azimuth</div>
+                                <div class="telemetry-value" id="telAz">---.-</div>
+                            </div>
+                            <div class="telemetry-item">
+                                <div class="telemetry-label">Distance</div>
+                                <div class="telemetry-value" id="telDist">---- km</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Compact Polar Plot -->
+                <div class="panel polar-container">
+                    <div class="panel-header">
+                        <span>SKY VIEW // PASS GEOMETRY</span>
+                        <div class="panel-indicator"></div>
+                    </div>
+                    <div class="panel-content">
+                        <canvas id="polarPlot"></canvas>
+                        <div id="passDataStrip" class="pass-data-strip pass-data-strip--empty">
+                            <span>Select a pass to view geometry</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </section>
+
+        <!-- Every tracked satellite's passes over the next 24 hours -->
+        <section class="panel pass-timeline">
+            <div class="panel-header">
+                <span>NEXT 24 H // ALL TRACKED SATELLITES</span>
+                <span class="ptl-hint">bar height is the peak elevation · click one to select it</span>
+            </div>
+            <div class="panel-content">
+                <div class="ptl-body" id="passTimelineBody">
+                    <div class="ptl-empty ui-loading">Calculating passes…</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="data-grid">
+            <!-- Pass List -->
+            <div class="panel pass-list">
+                <div class="panel-header">
+                    <span>UPCOMING PASSES <span id="passCount" style="color: var(--accent-cyan);"></span></span>
+                    <div class="panel-indicator"></div>
+                </div>
+                <div class="panel-content">
+                    <div class="pass-list-content" id="passList">
+                        <div style="text-align:center;color:var(--text-secondary);padding:20px;">
+                            Calculating passes...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transmitters -->
+            <div class="panel transmitters-panel">
+                <div class="panel-header">
+                    <span>TRANSMITTERS <span id="txCount" style="color:var(--accent-cyan);"></span></span>
+                    <div class="panel-indicator"></div>
+                </div>
+                <div class="panel-content" id="transmittersList">
+                    <div style="text-align:center;color:var(--text-secondary);padding:15px;font-size:11px;">
+                        Select a satellite to load transmitters
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ground Station -->
+            <div class="panel gs-panel" id="gsPanel">
+                <div class="panel-header">
+                    <span>GROUND STATION</span>
+                    <div class="panel-indicator" id="gsIndicator"></div>
+                </div>
+                <div class="panel-content">
+                    <!-- Scheduler status -->
+                    <div class="gs-status-row">
+                        <span style="color:var(--text-secondary);font-size:11px;">Scheduler</span>
+                        <span id="gsSchedulerStatus" style="color:var(--text-secondary);font-size:11px;">IDLE</span>
+                    </div>
+                    <div class="gs-status-row" id="gsActiveRow" style="display:none;">
+                        <span style="color:var(--text-secondary);font-size:11px;">Capturing</span>
+                        <span id="gsActiveSat" style="color:var(--accent-cyan);font-family:var(--font-mono);font-size:11px;">-</span>
+                    </div>
+                    <div class="gs-status-row" id="gsDopplerRow" style="display:none;">
+                        <span style="color:var(--text-secondary);font-size:11px;">Doppler</span>
+                        <span id="gsDopplerShift" style="color:var(--accent-green);font-family:var(--font-mono);font-size:11px;">+0 Hz</span>
+                    </div>
+                    <!-- Quick enable -->
+                    <div style="margin-top:8px;display:flex;gap:6px;">
+                        <button class="pass-capture-btn" onclick="gsEnableScheduler()" id="gsEnableBtn">ENABLE</button>
+                        <button class="pass-capture-btn" onclick="gsDisableScheduler()" id="gsDisableBtn" style="display:none;border-color:rgba(255,80,80,0.5);color:#ff6666;">DISABLE</button>
+                        <button class="pass-capture-btn" onclick="gsStopActive()" id="gsStopBtn" style="display:none;">STOP</button>
+                    </div>
+
+                    <!-- Observation profiles -->
+                    <div style="margin-top:10px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                            <span style="font-size:10px;color:var(--text-secondary);letter-spacing:0.05em;">OBSERVATION PROFILES</span>
+                            <button class="pass-capture-btn" onclick="gsShowProfileForm()" id="gsAddProfileBtn" style="font-size:9px;padding:2px 7px;">+ ADD</button>
+                        </div>
+                        <div id="gsProfileList" style="max-height:140px;overflow-y:auto;"></div>
+
+                        <!-- Inline profile form (hidden by default) -->
+                        <div id="gsProfileForm" style="display:none;background:rgba(0,40,60,0.6);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:8px;margin-top:6px;">
+                            <div style="font-size:10px;color:var(--accent-cyan);margin-bottom:6px;" id="gsProfileFormTitle">NEW PROFILE</div>
+                            <input type="hidden" id="gsProfNorad">
+                            <div class="gs-form-row">
+                                <label class="gs-form-label">Satellite</label>
+                                <span id="gsProfSatName" style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono);">-</span>
+                            </div>
+                            <div class="gs-form-row">
+                                <label class="gs-form-label">Frequency</label>
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <input type="number" id="gsProfFreq" step="0.001" min="50" max="2000" style="width:80px;" placeholder="MHz">
+                                    <span style="font-size:10px;color:var(--text-secondary);">MHz</span>
+                                </div>
+                            </div>
+                            <div class="gs-form-row">
+                                <label class="gs-form-label">Decoder</label>
+                                <select id="gsProfDecoder" style="font-size:11px;background:rgba(0,20,40,0.8);border:1px solid rgba(0,212,255,0.3);color:var(--text-primary);border-radius:3px;padding:2px 4px;">
+                                    <option value="fm">FM (general)</option>
+                                    <option value="afsk">AFSK / AX.25</option>
+                                    <option value="gmsk">GMSK</option>
+                                    <option value="bpsk">BPSK (gr-satellites)</option>
+                                    <option value="iq_only">IQ record only</option>
+                                </select>
+                            </div>
+                            <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(0,212,255,0.08);">
+                                <div style="font-size:10px;color:var(--text-secondary);margin-bottom:6px;letter-spacing:0.05em;">TASKS</div>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-primary);margin-bottom:4px;">
+                                    <input type="checkbox" id="gsTaskTelemetryAx25" style="accent-color:var(--accent-cyan);">
+                                    Telemetry AX.25 / AFSK
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-primary);margin-bottom:4px;">
+                                    <input type="checkbox" id="gsTaskTelemetryGmsk" style="accent-color:var(--accent-cyan);">
+                                    Telemetry GMSK
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-primary);margin-bottom:4px;">
+                                    <input type="checkbox" id="gsTaskTelemetryBpsk" style="accent-color:var(--accent-cyan);">
+                                    Telemetry BPSK
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-primary);margin-bottom:4px;">
+                                    <input type="checkbox" id="gsTaskWeatherMeteor" style="accent-color:var(--accent-cyan);">
+                                    Meteor LRPT capture
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-primary);">
+                                    <input type="checkbox" id="gsTaskRecordIq" style="accent-color:var(--accent-cyan);">
+                                    Record IQ artifact
+                                </label>
+                            </div>
+                            <div class="gs-form-row">
+                                <label class="gs-form-label">Min El</label>
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <input type="number" id="gsProfMinEl" value="10" min="0" max="90" style="width:50px;">
+                                    <span style="font-size:10px;color:var(--text-secondary);">°</span>
+                                </div>
+                            </div>
+                            <div class="gs-form-row">
+                                <label class="gs-form-label">Gain</label>
+                                <input type="number" id="gsProfGain" value="40" min="0" max="60" style="width:50px;">
+                            </div>
+                            <div class="gs-form-row">
+                                <label class="gs-form-label">Record IQ</label>
+                                <input type="checkbox" id="gsProfRecordIQ" style="accent-color:var(--accent-cyan);">
+                            </div>
+                            <div style="display:flex;gap:6px;margin-top:8px;">
+                                <button class="pass-capture-btn" onclick="gsSaveProfile()" style="flex:1;">SAVE</button>
+                                <button class="pass-capture-btn" onclick="gsHideProfileForm()" style="flex:1;border-color:rgba(255,80,80,0.4);color:#ff6666;">CANCEL</button>
+                            </div>
+                            <div id="gsProfileError" style="display:none;color:#ff6666;font-size:10px;margin-top:4px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Upcoming auto-observations -->
+                    <div style="margin-top:10px;">
+                        <div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;letter-spacing:0.05em;">UPCOMING PASSES</div>
+                        <div id="gsUpcomingList" style="max-height:120px;overflow-y:auto;"></div>
+                    </div>
+
+                    <!-- Live waterfall (Phase 5) -->
+                    <div id="gsWaterfallPanel" style="display:none;margin-top:8px;">
+                        <div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;">
+                            LIVE SPECTRUM <span id="gsWaterfallStatus" style="color:var(--accent-cyan);">STOPPED</span>
+                        </div>
+                        <canvas id="gs-waterfall" style="width:100%;height:160px;background:#000a14;display:block;"></canvas>
+                    </div>
+                    <!-- SigMF recordings -->
+                    <div id="gsRecordingsPanel" style="margin-top:8px;display:none;">
+                        <div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;">IQ RECORDINGS</div>
+                        <div id="gsRecordingsList" style="max-height:100px;overflow-y:auto;"></div>
+                    </div>
+                    <div id="gsOutputsPanel" style="margin-top:8px;display:none;">
+                        <div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;">DECODED IMAGERY</div>
+                        <div id="gsDecodeStatus" style="display:none;color:var(--accent-cyan);font-size:9px;font-family:var(--font-mono);margin-bottom:4px;"></div>
+                        <div id="gsOutputsList" style="max-height:120px;overflow-y:auto;"></div>
+                    </div>
+                    <!-- Rotator (Phase 6, shown only if connected) -->
+                    <div id="gsRotatorPanel" style="display:none;margin-top:8px;">
+                        <div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;">ROTATOR</div>
+                        <div class="gs-status-row">
+                            <span style="font-size:10px;color:var(--text-secondary);">AZ/EL</span>
+                            <span id="gsRotatorPos" style="font-family:var(--font-mono);font-size:10px;color:var(--accent-cyan);">---/--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Controls Bar -->
+        <div class="controls-bar">
+            <div class="control-group">
+                <span class="control-label">Lat:</span>
+                <input type="number" id="obsLat" value="51.5074" step="0.0001">
+            </div>
+            <div class="control-group">
+                <span class="control-label">Lon:</span>
+                <input type="number" id="obsLon" value="-0.1278" step="0.0001">
+            </div>
+            <button class="btn" onclick="getLocation()">GPS</button>
+            <button class="btn primary" onclick="calculatePasses()">CALCULATE</button>
+        </div>
+    </main>
+
+    <div class="packet-modal" id="packetModal" hidden>
+        <div class="packet-modal-backdrop" onclick="closePacketModal()"></div>
+        <div class="packet-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="packetModalTitle">
+            <div class="packet-modal-header">
+                <div>
+                    <div class="packet-modal-kicker">GROUND STATION</div>
+                    <div class="packet-modal-title" id="packetModalTitle">Decoded Packets <span id="packetModalCount" style="color:var(--accent-cyan);"></span></div>
+                </div>
+                <div class="packet-modal-actions">
+                    <button class="packet-console-btn" onclick="clearPacketConsole()">CLEAR</button>
+                    <button class="packet-console-btn" onclick="closePacketModal()">CLOSE</button>
+                </div>
+            </div>
+            <div class="packet-modal-body" id="packetModalList">
+                <div class="packet-empty-state">
+                    No packets received yet.<br>Run a ground-station observation with telemetry tasks enabled to populate this console.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="satModal" class="sat-management-modal" onclick="if(event.target === this) closeSatModal()">
+        <div class="sat-management-dialog" role="dialog" aria-modal="true" aria-labelledby="satModalTitle">
+            <button class="sat-management-close" onclick="closeSatModal()" aria-label="Close satellite modal">×</button>
+            <div class="sat-management-title" id="satModalTitle">Add Satellites</div>
+            <div class="sat-management-subtitle">Import from manual TLE data or fetch categories directly from CelesTrak.</div>
+
+            <div class="sat-management-tabs">
+                <button class="sat-management-tab active" data-tab="tle" onclick="switchSatModalTab('tle')">MANUAL TLE</button>
+                <button class="sat-management-tab" data-tab="celestrak" onclick="switchSatModalTab('celestrak')">CELESTRAK</button>
+            </div>
+
+            <div id="tleSection" class="sat-management-section active">
+                <div class="sat-management-copy">Paste one or more TLE triplets: satellite name, line 1, and line 2.</div>
+                <textarea id="tleInput" class="sat-management-textarea" placeholder="ISS (ZARYA)
+1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9002
+2 25544  51.6400 208.9163 0006703 296.5855  63.4606 15.49995465478450"></textarea>
+                <button class="drawer-action-btn drawer-action-btn-primary sat-management-submit" onclick="addFromTLE()">ADD SATELLITE</button>
+            </div>
+
+            <div id="celestrakSection" class="sat-management-section">
+                <div class="sat-management-copy">Fetch tracked satellites by category from CelesTrak.</div>
+                <div id="celestrakStatus" class="sat-management-status"></div>
+                <div class="sat-management-grid">
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('stations')">SPACE STATIONS</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('weather')">WEATHER</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('goes')">GOES</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('amateur')">AMATEUR</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('cubesat')">CUBESATS</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('starlink')">STARLINK</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('oneweb')">ONEWEB</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('visual')">VISUAL</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('geo')">GEOSTATIONARY</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('resource')">RESOURCE</button>
+                    <button class="drawer-action-btn" onclick="fetchCelestrakCategory('iridium-NEXT')">IRIDIUM NEXT</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* Location selector styles */
+        .location-selector {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 15px;
+        }
+        .location-label {
+            font-size: 11px;
+            color: var(--text-secondary, #8899aa);
+            font-family: var(--font-mono);
+        }
+        .location-select {
+            background: rgba(0, 40, 60, 0.8);
+            border: 1px solid rgba(0, 200, 255, 0.3);
+            color: #e0f7ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            min-width: 140px;
+        }
+        .location-select:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+        }
+        .location-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .location-status-dot.online {
+            background: #00ff88;
+            box-shadow: 0 0 6px #00ff88;
+        }
+        .location-status-dot.offline {
+            background: #ff4444;
+            box-shadow: 0 0 6px #ff4444;
+        }
+
+        /* Pass event row */
+        .pass-event-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 10px;
+            color: var(--accent-cyan);
+            opacity: 0.75;
+            margin-top: 4px;
+            font-family: var(--font-mono);
+        }
+        .pass-capture-btn {
+            background: rgba(0, 255, 136, 0.12);
+            border: 1px solid rgba(0, 255, 136, 0.4);
+            color: var(--accent-green, #00ff88);
+            font-size: 10px;
+            font-family: var(--font-mono);
+            padding: 2px 7px;
+            border-radius: 3px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .pass-capture-btn:hover {
+            background: rgba(0, 255, 136, 0.25);
+        }
+
+        /* Transmitters panel */
+        .transmitters-panel, .packets-panel {
+            margin-top: 0;
+        }
+        .tx-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 8px;
+            border-bottom: 1px solid rgba(0,212,255,0.08);
+            font-size: 11px;
+        }
+        .tx-item:last-child { border-bottom: none; }
+        .tx-inactive { opacity: 0.5; }
+        .tx-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 3px;
+        }
+        .tx-body { flex: 1; min-width: 0; }
+        .tx-desc {
+            color: var(--text-primary);
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tx-freq {
+            color: var(--accent-cyan);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            margin-top: 2px;
+        }
+        .tx-uplink { color: var(--accent-green, #00ff88); }
+        .tx-service {
+            color: var(--text-muted, #556677);
+            font-size: 10px;
+            margin-top: 1px;
+        }
+
+        .packet-empty-state {
+            text-align:center;
+            color:var(--text-secondary);
+            padding:15px;
+            font-size:11px;
+            line-height:1.4;
+        }
+
+        /* Ground Station panel */
+        .gs-panel { margin-top: 0; }
+        .gs-status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(0,212,255,0.06);
+            font-size: 11px;
+        }
+        .gs-obs-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 10px;
+            border-bottom: 1px solid rgba(0,212,255,0.06);
+            font-family: var(--font-mono);
+        }
+        .gs-obs-item .sat-name { color: var(--text-primary); }
+        .gs-obs-item .obs-time { color: var(--text-secondary); font-size: 9px; }
+        .gs-recording-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 0;
+            font-size: 10px;
+            border-bottom: 1px solid rgba(0,212,255,0.06);
+        }
+        .gs-recording-item a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+            font-family: var(--font-mono);
+        }
+        .gs-recording-item a:hover { text-decoration: underline; }
+        .gs-form-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(0,212,255,0.06);
+        }
+        .gs-form-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+            min-width: 58px;
+        }
+        .gs-form-row input[type="number"],
+        .gs-form-row select {
+            background: rgba(0,20,40,0.8);
+            border: 1px solid rgba(0,212,255,0.3);
+            color: var(--text-primary);
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+        .gs-profile-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(0,212,255,0.06);
+            font-size: 10px;
+        }
+        .gs-profile-item .prof-name {
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .gs-profile-item .prof-freq {
+            color: var(--accent-cyan);
+            font-family: var(--font-mono);
+            font-size: 9px;
+            margin: 0 6px;
+            flex-shrink: 0;
+        }
+        .gs-profile-item .prof-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .gs-profile-item button {
+            background: none;
+            border: 1px solid rgba(0,212,255,0.3);
+            color: var(--accent-cyan);
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 9px;
+            cursor: pointer;
+            font-family: var(--font-mono);
+        }
+        .gs-profile-item button:hover { background: rgba(0,212,255,0.1); }
+        .gs-profile-item button.del { border-color: rgba(255,80,80,0.4); color: #ff6666; }
+        .gs-profile-item button.del:hover { background: rgba(255,80,80,0.1); }
+        .gs-profile-enabled { color: var(--accent-green) !important; }
+    </style>
+    <script>
+        // Check if embedded mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const isEmbedded = urlParams.get('embedded') === 'true';
+
+        // Dashboard state
+        let passes = [];
+        let selectedPass = null;
+        let groundMap = null;
+        let satMapOverlays = null;
+        let satMarker = null;
+        let trackLine = null;
+        let observerMarker = null;
+        let orbitTrack = null;
+        let latestLivePosition = null;
+        let mapViewMode = 'both';
+        let mapFollowMode = false;
+        let selectedSatellite = 25544;
+        let currentLocationSource = 'local';
+        let agents = [];
+        let _txRequestId = 0;
+        let _telemetryPollTimer = null;
+        let _telemetryAbortController = null;
+        let _activeTelemetryRequestKey = null;
+        let _passRequestId = 0;
+        let _passAbortController = null;
+        let _passTimeoutId = null;
+        let _activePassRequestKey = null;
+        let trackedSatelliteCatalog = [];
+        let receiverDevices = [];
+        let packetHistory = [];
+        let packetConsoleCollapsed = false;
+        let _dashboardRetryTimer = null;
+        let _dashboardRetryAttempts = 0;
+        let _satelliteSelectionRequestToken = 0;
+        let _lastSatelliteCatalogRefresh = 0;
+        let _pageTearingDown = false;
+        let _clockTimer = null;
+        let _countdownTimer = null;
+        const passCache = new Map();
+        const telemetryCache = new Map();
+        const transmitterCache = new Map();
+        const RECEIVER_STORAGE_KEY = 'satellite.dashboard.receiver';
+        const DASHBOARD_FETCH_TIMEOUT_MS = 30000;
+        const PASS_FETCH_TIMEOUT_MS = 90000;
+        const SAT_DRAWER_FETCH_TIMEOUT_MS = 15000;
+        const TELEMETRY_POLL_INTERVAL_MS = 5000;
+        const TELEMETRY_FETCH_TIMEOUT_MS = 8000;
+        const BUILTIN_TX_FALLBACK = {
+            25544: [
+                { description: 'APRS digipeater', downlink_low: 145.825, downlink_high: 145.825, uplink_low: null, uplink_high: null, mode: 'FM AX.25', baud: 1200, status: 'active', type: 'beacon', service: 'Packet' },
+                { description: 'SSTV events', downlink_low: 145.800, downlink_high: 145.800, uplink_low: null, uplink_high: null, mode: 'FM', baud: null, status: 'active', type: 'image', service: 'SSTV' }
+            ],
+            40069: [
+                { description: 'Meteor LRPT weather downlink', downlink_low: 137.900, downlink_high: 137.900, uplink_low: null, uplink_high: null, mode: 'LRPT', baud: 72000, status: 'active', type: 'image', service: 'Weather' }
+            ],
+            57166: [
+                { description: 'Meteor LRPT weather downlink', downlink_low: 137.900, downlink_high: 137.900, uplink_low: null, uplink_high: null, mode: 'LRPT', baud: 72000, status: 'active', type: 'image', service: 'Weather' }
+            ],
+            59051: [
+                { description: 'Meteor LRPT weather downlink', downlink_low: 137.900, downlink_high: 137.900, uplink_low: null, uplink_high: null, mode: 'LRPT', baud: 72000, status: 'active', type: 'image', service: 'Weather' }
+            ]
+        };
+
+        const _satAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent-cyan').trim() || '#00ffff';
+
+        let satellites = {
+            25544: { name: 'ISS (ZARYA)', color: _satAccent },
+            40069: { name: 'METEOR-M2', color: '#9370DB' },
+            57166: { name: 'METEOR-M2-3', color: '#ff00ff' },
+            59051: { name: 'METEOR-M2-4', color: '#00ff88' }
+        };
+
+        const satColors = [_satAccent, '#9370DB', '#ff00ff', '#00ff00', '#ff6600', '#ffff00', '#ff69b4', '#7b68ee'];
+
+        async function fetchJsonWithTimeout(url, options = {}, timeoutMs = SAT_DRAWER_FETCH_TIMEOUT_MS) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, {
+                    credentials: 'same-origin',
+                    ...options,
+                    signal: controller.signal,
+                });
+                const data = await response.json();
+                return { response, data };
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
+
+        function _esc(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function _packetEmptyState() {
+            return '<div class="packet-empty-state">No packets received yet.<br>Run a ground-station observation with telemetry tasks enabled to populate this console.</div>';
+        }
+
+        function _packetSummary(packet) {
+            if (packet.parsed) {
+                try {
+                    const json = JSON.stringify(packet.parsed);
+                    return json.length > 140 ? json.slice(0, 137) + '...' : json;
+                } catch (_) {}
+            }
+            const raw = packet.raw || '';
+            return raw.length > 180 ? raw.slice(0, 177) + '...' : raw || 'Telemetry frame received';
+        }
+
+        function _packetItemHtml(packet, compact = false) {
+            const protocol = packet.protocol ? _esc(String(packet.protocol)) : 'TELEMETRY';
+            const source = packet.source ? ' / ' + _esc(String(packet.source)) : '';
+            const summary = _esc(_packetSummary(packet));
+            const raw = packet.raw ? `<div class="packet-entry-raw">${_esc(String(packet.raw))}</div>` : '';
+            const parsed = packet.parsed ? `<div class="packet-entry-json">${_esc(JSON.stringify(packet.parsed, null, 2))}</div>` : '';
+            return `
+                <div class="packet-entry ${compact ? 'compact' : ''}">
+                    <div class="packet-entry-header">
+                        <div class="packet-entry-protocol">${protocol}${source}</div>
+                        <div class="packet-entry-time">${packet.timeLabel}</div>
+                    </div>
+                    <div class="packet-entry-summary">${summary}</div>
+                    ${compact ? '' : parsed}
+                    ${raw}
+                </div>
+            `;
+        }
+
+        function renderPacketPanels() {
+            const list = document.getElementById('packetList');
+            const modalList = document.getElementById('packetModalList');
+            const countText = packetHistory.length ? `(${packetHistory.length})` : '';
+            const countEl = document.getElementById('packetCount');
+            const modalCountEl = document.getElementById('packetModalCount');
+            if (countEl) countEl.textContent = countText;
+            if (modalCountEl) modalCountEl.textContent = countText;
+
+            if (list) {
+                list.innerHTML = packetHistory.length
+                    ? packetHistory.map(packet => _packetItemHtml(packet, true)).join('')
+                    : _packetEmptyState();
+            }
+            if (modalList) {
+                modalList.innerHTML = packetHistory.length
+                    ? packetHistory.map(packet => _packetItemHtml(packet, false)).join('')
+                    : _packetEmptyState();
+            }
+        }
+
+        function getObserverCoords() {
+            const lat = parseFloat(document.getElementById('obsLat')?.value);
+            const lon = parseFloat(document.getElementById('obsLon')?.value);
+            return {
+                lat,
+                lon,
+                valid: Number.isFinite(lat) && Number.isFinite(lon)
+            };
+        }
+
+        function getPassCacheKey(noradId = selectedSatellite) {
+            const { lat, lon, valid } = getObserverCoords();
+            if (!valid) return `sat:${noradId}:observer:unknown`;
+            return `sat:${noradId}:observer:${lat.toFixed(3)}:${lon.toFixed(3)}`;
+        }
+
+        function getPassPredictionTargets() {
+            if (Number.isFinite(selectedSatellite)) {
+                return [selectedSatellite];
+            }
+            return [25544];
+        }
+
+        function getActivePassRequestKey(targetIds = getPassPredictionTargets()) {
+            const { lat, lon, valid } = getObserverCoords();
+            const satKey = [...targetIds]
+                .filter(id => Number.isFinite(id))
+                .sort((a, b) => a - b)
+                .join(',');
+            if (!valid) return `sat-batch:observer:unknown:${satKey}`;
+            return `sat-batch:observer:${lat.toFixed(3)}:${lon.toFixed(3)}:${satKey}`;
+        }
+
+        function cacheCurrentPasses(noradId = selectedSatellite, passList = passes) {
+            if (!Array.isArray(passList) || !passList.length) return;
+            passCache.set(getPassCacheKey(noradId), {
+                timestamp: Date.now(),
+                passes: passList
+            });
+        }
+
+        function getCachedPasses(noradId = selectedSatellite) {
+            return passCache.get(getPassCacheKey(noradId)) || null;
+        }
+
+        function cachePredictedPassBatch(passList = [], targetIds = getPassPredictionTargets()) {
+            const grouped = new Map();
+            targetIds.forEach(id => grouped.set(id, []));
+
+            (Array.isArray(passList) ? passList : []).forEach(pass => {
+                const norad = parseInt(pass?.norad ?? pass?.norad_id, 10);
+                if (!Number.isFinite(norad)) return;
+                if (!grouped.has(norad)) grouped.set(norad, []);
+                grouped.get(norad).push(pass);
+            });
+
+            grouped.forEach((list, noradId) => {
+                passCache.set(getPassCacheKey(noradId), {
+                    timestamp: Date.now(),
+                    passes: list
+                });
+            });
+        }
+
+        function applySelectedSatellitePasses() {
+            const cached = getCachedPasses(selectedSatellite);
+            passes = cached?.passes || [];
+            if (!passes.length) {
+                selectedPass = null;
+                renderPassList();
+                updateStats();
+                updateMissionDrawerInfo();
+                renderMapTrackOverlays();
+                updateMapTrackSummary();
+                updateTelemetry(null);
+                return false;
+            }
+
+            if (!Number.isInteger(selectedPass) || !passes[selectedPass]) {
+                selectedPass = 0;
+            }
+
+            renderPassList();
+            updateStats();
+            updateMissionDrawerInfo();
+
+            if (passes[selectedPass]) {
+                selectPass(selectedPass);
+            }
+            return true;
+        }
+
+        function cacheLivePosition(noradId = selectedSatellite, position = latestLivePosition) {
+            if (!position) return;
+            telemetryCache.set(String(noradId), {
+                timestamp: Date.now(),
+                position
+            });
+        }
+
+        function getCachedLivePosition(noradId = selectedSatellite) {
+            return telemetryCache.get(String(noradId)) || null;
+        }
+
+        function cacheTransmitters(noradId, txList) {
+            if (!noradId || !Array.isArray(txList) || !txList.length) return;
+            transmitterCache.set(String(noradId), {
+                timestamp: Date.now(),
+                transmitters: txList
+            });
+        }
+
+        function getCachedTransmitters(noradId = selectedSatellite) {
+            return transmitterCache.get(String(noradId)) || null;
+        }
+
+        function _isFiniteNumber(value) {
+            return Number.isFinite(value);
+        }
+
+        // Compute slant range (km) from observer on Earth's surface to satellite.
+        // Uses spherical Earth approximation; accurate enough for display.
+        function _computeSlantRange(obsLat, obsLon, satLat, satLon, satAltKm) {
+            const R = 6371;
+            const toRad = Math.PI / 180;
+            const lat1 = obsLat * toRad, lon1 = obsLon * toRad;
+            const lat2 = satLat * toRad, lon2 = satLon * toRad;
+            const rSat = R + satAltKm;
+            const ox = R    * Math.cos(lat1) * Math.cos(lon1);
+            const oy = R    * Math.cos(lat1) * Math.sin(lon1);
+            const oz = R    * Math.sin(lat1);
+            const sx = rSat * Math.cos(lat2) * Math.cos(lon2);
+            const sy = rSat * Math.cos(lat2) * Math.sin(lon2);
+            const sz = rSat * Math.sin(lat2);
+            return Math.sqrt((sx-ox)**2 + (sy-oy)**2 + (sz-oz)**2);
+        }
+
+        function normalizeLivePosition(pos, previous = latestLivePosition) {
+            if (!pos) return null;
+            const merged = {
+                ...(previous || {}),
+                ...pos,
+            };
+            const liveTrack = Array.isArray(pos.groundTrack)
+                ? pos.groundTrack
+                : (Array.isArray(pos.track)
+                    ? pos.track
+                    : (Array.isArray(previous?.groundTrack)
+                        ? previous.groundTrack
+                        : (Array.isArray(previous?.track) ? previous.track : null)));
+            if (liveTrack) {
+                merged.groundTrack = liveTrack;
+                merged.track = liveTrack;
+            }
+            return merged;
+        }
+
+        function applyTelemetryPosition(pos, options = {}) {
+            const { updateVisible = false, noradId = selectedSatellite } = options;
+            if (!pos) return;
+            const normalized = normalizeLivePosition(pos);
+            if (!normalized) return;
+            latestLivePosition = normalized;
+            cacheLivePosition(noradId, normalized);
+
+            const telLat = document.getElementById('telLat');
+            const telLon = document.getElementById('telLon');
+            const telAlt = document.getElementById('telAlt');
+            const telEl = document.getElementById('telEl');
+            const telAz = document.getElementById('telAz');
+            const telDist = document.getElementById('telDist');
+            if (telLat && _isFiniteNumber(normalized.lat)) telLat.textContent = normalized.lat.toFixed(4) + '°';
+            if (telLon && _isFiniteNumber(normalized.lon)) telLon.textContent = normalized.lon.toFixed(4) + '°';
+            if (telAlt && _isFiniteNumber(normalized.altitude ?? normalized.alt)) telAlt.textContent = (normalized.altitude ?? normalized.alt).toFixed(0) + ' km';
+            if (telEl && _isFiniteNumber(normalized.elevation ?? normalized.el)) telEl.textContent = (normalized.elevation ?? normalized.el).toFixed(1) + '°';
+            if (telAz && _isFiniteNumber(normalized.azimuth ?? normalized.az)) telAz.textContent = (normalized.azimuth ?? normalized.az).toFixed(1) + '°';
+            // Compute slant range from the current lat/lon/altitude so the
+            // distance display updates at the same rate as position (1 Hz via
+            // SSE). Falls back to the Skyfield-computed value from the HTTP
+            // poll if geometry data is not available.
+            let displayDist = normalized.distance ?? normalized.dist;
+            const { lat: obsLat, lon: obsLon, valid: obsValid } = getObserverCoords();
+            const satAlt = normalized.altitude ?? normalized.alt;
+            if (obsValid && _isFiniteNumber(normalized.lat) && _isFiniteNumber(normalized.lon) && _isFiniteNumber(satAlt)) {
+                displayDist = _computeSlantRange(obsLat, obsLon, normalized.lat, normalized.lon, satAlt);
+            }
+            if (telDist && _isFiniteNumber(displayDist)) telDist.textContent = displayDist.toFixed(0) + ' km';
+
+            if (selectedPass == null && _isFiniteNumber(normalized.azimuth ?? normalized.az) && _isFiniteNumber(normalized.elevation ?? normalized.el)) {
+                drawPolarPlotWithPosition(
+                    normalized.azimuth ?? normalized.az,
+                    normalized.elevation ?? normalized.el,
+                    satellites[selectedSatellite]?.color || _satAccent
+                );
+            }
+            renderMapTrackOverlays({ refreshPass: false, refreshLive: true });
+            updateMapTrackSummary();
+
+            if (updateVisible) {
+                const visEl = document.getElementById('statVisible');
+                if (visEl && Number.isFinite(normalized.visibleCount)) visEl.textContent = String(normalized.visibleCount);
+            }
+        }
+
+        function restoreSatelliteStateFromCache(noradId = selectedSatellite) {
+            if (noradId !== selectedSatellite) return;
+
+            const cachedPasses = getCachedPasses(noradId);
+            if (cachedPasses?.passes?.length) {
+                passes = cachedPasses.passes;
+                renderPassList();
+                updateStats();
+                if (!Number.isInteger(selectedPass) || !passes[selectedPass]) {
+                    selectedPass = 0;
+                }
+                if (passes[selectedPass]) {
+                    selectPass(selectedPass);
+                }
+            }
+
+            const cachedTelemetry = getCachedLivePosition(noradId);
+            if (cachedTelemetry?.position) {
+                applyTelemetryPosition(cachedTelemetry.position, { noradId });
+            }
+
+            const cachedTransmitters = getCachedTransmitters(noradId);
+            if (cachedTransmitters?.transmitters?.length) {
+                renderTransmitters(cachedTransmitters.transmitters);
+            }
+
+            updateMissionDrawerInfo();
+        }
+
+        function loadDashboardSatellites(forceDataRefresh = true) {
+            const btn = document.getElementById('satRefreshBtn');
+            if (btn) {
+                btn.classList.remove('spinning');
+                void btn.offsetWidth; // force reflow to restart animation
+                btn.classList.add('spinning');
+            }
+            fetchJsonWithTimeout('/satellite/tracked?enabled=true')
+                .then(({ data }) => {
+                    const prevSelected = selectedSatellite;
+                    const newSats = {
+                        25544: { name: 'ISS (ZARYA)', color: satellites[25544]?.color || satColors[0] },
+                        40069: { name: 'METEOR-M2', color: satellites[40069]?.color || satColors[1] },
+                        57166: { name: 'METEOR-M2-3', color: satellites[57166]?.color || satColors[2] },
+                        59051: { name: 'METEOR-M2-4', color: satellites[59051]?.color || satColors[4] },
+                    };
+                    const select = document.getElementById('satSelect');
+                    if (!select) return;
+                    if (data.status === 'success' && Array.isArray(data.satellites)) {
+                        data.satellites.forEach((sat, i) => {
+                            const norad = parseInt(sat.norad_id);
+                            if (!Number.isFinite(norad)) return;
+                            newSats[norad] = {
+                                name: sat.name,
+                                color: satellites[norad]?.color || satColors[i % satColors.length]
+                            };
+                        });
+                    }
+                    satellites = newSats;
+                    schedulePassTimeline();
+                    select.innerHTML = '';
+                    Object.entries(newSats).forEach(([norad, sat]) => {
+                        const opt = document.createElement('option');
+                        opt.value = norad;
+                        opt.textContent = sat.name;
+                        select.appendChild(opt);
+                    });
+                    if (newSats[prevSelected]) {
+                        select.value = String(prevSelected);
+                    } else if (newSats[25544]) {
+                        select.value = '25544';
+                    }
+                    const nextSelectedSatellite = parseInt(select.value, 10);
+                    const selectionChanged = nextSelectedSatellite !== selectedSatellite;
+                    selectedSatellite = nextSelectedSatellite;
+                    if (selectionChanged || forceDataRefresh) {
+                        _satelliteSelectionRequestToken += 1;
+                    }
+                    _lastSatelliteCatalogRefresh = Date.now();
+                    if (selectionChanged) {
+                        clearTelemetry();
+                    }
+                    restoreSatelliteStateFromCache(selectedSatellite);
+                    updateMissionDrawerInfo();
+                    const hasCachedPasses = !!getCachedPasses(selectedSatellite)?.passes?.length;
+                    const hasCachedTelemetry = !!getCachedLivePosition(selectedSatellite)?.position;
+                    const hasCachedTransmitters = !!getCachedTransmitters(selectedSatellite)?.transmitters?.length;
+                    if (forceDataRefresh || !hasCachedTransmitters) loadTransmitters(selectedSatellite, _satelliteSelectionRequestToken);
+                    if (forceDataRefresh || !hasCachedPasses) calculatePasses(selectedSatellite, _satelliteSelectionRequestToken);
+                    if (forceDataRefresh || !hasCachedTelemetry) fetchCurrentTelemetry(selectedSatellite, _satelliteSelectionRequestToken);
+                    if (window.gsLoadOutputs) window.gsLoadOutputs();
+                    if (window.gsOnSatelliteChange) window.gsOnSatelliteChange();
+                    if (!trackedSatelliteCatalog.length) {
+                        trackedSatelliteCatalog = Object.entries(newSats).map(([norad, sat]) => ({
+                            norad_id: parseInt(norad, 10),
+                            name: sat.name,
+                            builtin: true,
+                            enabled: true,
+                        }));
+                        renderTrackedSatelliteCatalog();
+                    }
+                    scheduleDashboardDataRetry(2500);
+                })
+                .catch(() => {
+                    showSatelliteCommandStatus('Tracked-satellite refresh failed. Retrying with the current selection.', 'warn');
+                    if (!trackedSatelliteCatalog.length) {
+                        trackedSatelliteCatalog = Object.entries(satellites).map(([norad, sat]) => ({
+                            norad_id: parseInt(norad, 10),
+                            name: sat.name,
+                            builtin: true,
+                            enabled: true,
+                        }));
+                        renderTrackedSatelliteCatalog();
+                    }
+                    const hasCachedPasses = !!getCachedPasses(selectedSatellite)?.passes?.length;
+                    const hasCachedTelemetry = !!getCachedLivePosition(selectedSatellite)?.position;
+                    const hasCachedTransmitters = !!getCachedTransmitters(selectedSatellite)?.transmitters?.length;
+                    if (!hasCachedPasses) calculatePasses(selectedSatellite, _satelliteSelectionRequestToken);
+                    if (!hasCachedTelemetry) fetchCurrentTelemetry(selectedSatellite, _satelliteSelectionRequestToken);
+                    if (!hasCachedTransmitters) loadTransmitters(selectedSatellite, _satelliteSelectionRequestToken);
+                    scheduleDashboardDataRetry(2500);
+                })
+                .finally(() => {
+                    if (btn) btn.classList.remove('spinning');
+                });
+        }
+
+        // ---- Pass timeline: all tracked satellites, next 24 h ----
+        const PASS_TIMELINE_HOURS = 24;
+        let _passTimelineTimer = null;
+
+        function ptlEsc(value) {
+            return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+        }
+
+        function schedulePassTimeline() {
+            clearTimeout(_passTimelineTimer);
+            _passTimelineTimer = setTimeout(loadPassTimeline, 400);
+        }
+
+        async function loadPassTimeline() {
+            const body = document.getElementById('passTimelineBody');
+            const { lat, lon, valid } = getObserverCoords();
+            const ids = Object.keys(satellites).map(Number).filter(Number.isFinite);
+            if (!body || !valid || !ids.length) return;
+            try {
+                const response = await fetch('/satellite/predict', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ latitude: lat, longitude: lon, hours: PASS_TIMELINE_HOURS, minEl: 5, satellites: ids }),
+                });
+                const data = await response.json();
+                if (data.status !== 'success') throw new Error(data.message || 'prediction failed');
+                renderPassTimeline(ids, Array.isArray(data.passes) ? data.passes : []);
+            } catch (err) {
+                body.innerHTML = '<div class="ptl-empty">Pass prediction unavailable</div>';
+            }
+        }
+
+        function renderPassTimeline(ids, passList) {
+            const body = document.getElementById('passTimelineBody');
+            if (!body) return;
+            const start = Date.now();
+            const span = PASS_TIMELINE_HOURS * 3600 * 1000;
+            const pct = (t) => Math.max(0, Math.min(100, (t - start) / span * 100));
+            const fmt = (t) => new Date(t).toISOString().slice(11, 16);
+
+            const rows = ids.map((id) => {
+                const sat = satellites[id] || {};
+                const own = passList.filter((p) => parseInt(p.norad ?? p.norad_id, 10) === id);
+                const bars = own.map((p) => {
+                    const aos = Date.parse(p.aosTime || p.startTimeISO);
+                    const los = Date.parse(p.losTime || p.endTimeISO) || aos + (p.duration || 5) * 60000;
+                    if (!Number.isFinite(aos) || los < start) return '';
+                    const left = pct(aos);
+                    const width = Math.max(0.35, pct(los) - left);
+                    const el = Number(p.maxEl) || 0;
+                    const height = Math.max(18, Math.min(100, el / 90 * 100));
+                    const cls = el >= 60 ? 'excellent' : el >= 30 ? 'good' : 'fair';
+                    const title = `${sat.name || id} · ${fmt(aos)}–${fmt(los)} UTC · peak ${el.toFixed(0)}° · ${Number(p.duration || 0).toFixed(0)} min`;
+                    return `<button type="button" class="ptl-pass ${cls}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;height:${height.toFixed(0)}%"
+                                title="${ptlEsc(title)}" onclick="selectTimelineSatellite(${id})"></button>`;
+                }).join('');
+                const active = id === selectedSatellite ? ' active' : '';
+                return `<div class="ptl-row${active}">
+                        <button type="button" class="ptl-name" onclick="selectTimelineSatellite(${id})" title="Select ${ptlEsc(sat.name || String(id))}">
+                            <i style="background:${ptlEsc(sat.color || 'var(--accent-cyan)')}"></i>${ptlEsc(sat.name || String(id))}
+                        </button>
+                        <div class="ptl-track">${bars || '<span class="ptl-none">no pass above 5°</span>'}</div>
+                    </div>`;
+            }).join('');
+
+            // Hour ticks every 3 h, on the UTC hour
+            const firstTick = Math.ceil(start / 10800000) * 10800000;
+            let ticks = '';
+            for (let t = firstTick; t < start + span; t += 10800000) {
+                ticks += `<span style="left:${pct(t).toFixed(2)}%">${fmt(t)}</span>`;
+            }
+            body.innerHTML = rows + `<div class="ptl-row ptl-axis"><span></span><div class="ptl-track">${ticks}<span class="ptl-now" style="left:0">now</span></div></div>`;
+        }
+
+        function selectTimelineSatellite(id) {
+            const select = document.getElementById('satSelect');
+            if (!select || !satellites[id]) return;
+            select.value = String(id);
+            onSatelliteChange();
+            schedulePassTimeline();
+        }
+
+        setInterval(() => { if (!document.hidden) loadPassTimeline(); }, 10 * 60 * 1000);
+
+        function onSatelliteChange() {
+            const select = document.getElementById('satSelect');
+            selectedSatellite = parseInt(select.value);
+            _satelliteSelectionRequestToken += 1;
+            const satName = satellites[selectedSatellite]?.name || 'Unknown';
+
+            document.getElementById('trackingStatus').textContent = 'ACQUIRING';
+            document.getElementById('trackingDot').style.background = 'var(--accent-orange)';
+
+            selectedPass = null;
+            passes = [];
+            latestLivePosition = null;
+            if (_telemetryAbortController) {
+                _telemetryAbortController.abort();
+                _telemetryAbortController = null;
+            }
+            _activeTelemetryRequestKey = null;
+
+            if (groundMap) {
+                if (trackLine) { groundMap.removeLayer(trackLine); trackLine = null; }
+                if (satMarker) { groundMap.removeLayer(satMarker); satMarker = null; }
+                if (orbitTrack) { groundMap.removeLayer(orbitTrack); orbitTrack = null; }
+            }
+
+            clearTelemetry();
+            updateMapTrackSummary();
+            restoreSatelliteStateFromCache(selectedSatellite);
+            updateMissionDrawerInfo();
+            loadTransmitters(selectedSatellite, _satelliteSelectionRequestToken);
+            calculatePasses(selectedSatellite, _satelliteSelectionRequestToken);
+            fetchCurrentTelemetry(selectedSatellite, _satelliteSelectionRequestToken);
+            if (window.gsLoadOutputs) window.gsLoadOutputs();
+            if (window.gsOnSatelliteChange) gsOnSatelliteChange();
+            _dashboardRetryAttempts = 0;
+            scheduleDashboardDataRetry(2500);
+        }
+
+        function setupEmbeddedMode() {
+            if (isEmbedded) {
+                // Hide back link when embedded
+                const backLink = document.querySelector('.back-link');
+                if (backLink) backLink.style.display = 'none';
+
+                // Add embedded class to body for CSS adjustments
+                document.body.classList.add('embedded');
+
+                // Compact the header slightly
+                const header = document.querySelector('.header');
+                if (header) header.style.padding = '10px 20px';
+
+                // Hide decorative elements
+                const gridBg = document.querySelector('.grid-bg');
+                const scanline = document.querySelector('.scanline');
+                if (gridBg) gridBg.style.display = 'none';
+                if (scanline) scanline.style.display = 'none';
+            }
+        }
+
+        function applySharedObserverLocation() {
+            if (window.ObserverLocation && ObserverLocation.isSharedEnabled()) {
+                const shared = ObserverLocation.getShared();
+                if (shared) {
+                    const latInput = document.getElementById('obsLat');
+                    const lonInput = document.getElementById('obsLon');
+                    if (latInput) latInput.value = shared.lat.toFixed(4);
+                    if (lonInput) lonInput.value = shared.lon.toFixed(4);
+                    updateMissionDrawerInfo();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        let satelliteSSE = null;
+
+        function startSSETracking() {
+            if (_pageTearingDown) return;
+            if (satelliteSSE) return;
+            satelliteSSE = new EventSource('/satellite/stream_satellite');
+            satelliteSSE.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'positions') handleLivePositions(msg.positions, 'sse');
+                } catch (_) {}
+            };
+            satelliteSSE.onerror = () => {
+                if (_pageTearingDown) return;
+                // Reconnect automatically after 5s
+                if (satelliteSSE) { satelliteSSE.close(); satelliteSSE = null; }
+                setTimeout(() => {
+                    if (!_pageTearingDown) startSSETracking();
+                }, 5000);
+            };
+        }
+
+        function stopSSETracking() {
+            if (satelliteSSE) { satelliteSSE.close(); satelliteSSE = null; }
+        }
+
+        function handleLivePositions(positions, source) {
+            // Find the selected satellite by name or norad_id
+            const pos = findSelectedPosition(positions);
+
+            if (!pos) return;
+
+            if (source === 'sse') {
+                // SSE is server-side and location-unaware: only update orbit
+                // position and ground track. Never set observer-relative fields
+                // (elevation, azimuth, distance, visible) from here — those are
+                // owned by the HTTP poll which uses the client's actual location.
+                const orbitOnly = {
+                    satellite: pos.satellite,
+                    norad_id: pos.norad_id,
+                    lat: pos.lat,
+                    lon: pos.lon,
+                    altitude: pos.altitude,
+                    groundTrack: pos.groundTrack,
+                    track: pos.track,
+                };
+                applyTelemetryPosition(orbitOnly, {
+                    updateVisible: false,
+                    noradId: parseInt(pos.norad_id, 10) || selectedSatellite,
+                });
+            } else {
+                // HTTP poll: owns all observer-relative data and visible-count badge
+                const visibleCount = positions.filter(p => p.visible).length;
+                const visEl = document.getElementById('statVisible');
+                if (visEl) visEl.textContent = visibleCount;
+                applyTelemetryPosition(
+                    { ...pos, visibleCount },
+                    {
+                        updateVisible: true,
+                        noradId: parseInt(pos.norad_id, 10) || selectedSatellite,
+                    }
+                );
+            }
+        }
+
+        function findSelectedPosition(positions) {
+            if (!Array.isArray(positions)) return null;
+            const satName = satellites[selectedSatellite]?.name;
+            return positions.find(p =>
+                parseInt(p.norad_id) === selectedSatellite ||
+                p.satellite === satName ||
+                p.satellite === satellites[selectedSatellite]?.name
+            ) || null;
+        }
+
+        function clearTelemetry() {
+            const telLat = document.getElementById('telLat');
+            const telLon = document.getElementById('telLon');
+            const telAlt = document.getElementById('telAlt');
+            const telEl = document.getElementById('telEl');
+            const telAz = document.getElementById('telAz');
+            const telDist = document.getElementById('telDist');
+            if (telLat) telLat.textContent = '---.----';
+            if (telLon) telLon.textContent = '---.----';
+            if (telAlt) telAlt.textContent = '--- km';
+            if (telEl) telEl.textContent = '--.-';
+            if (telAz) telAz.textContent = '---.-';
+            if (telDist) telDist.textContent = '---- km';
+        }
+
+        async function fetchCurrentTelemetry(requestedSatellite = selectedSatellite, selectionToken = _satelliteSelectionRequestToken) {
+            const lat = parseFloat(document.getElementById('obsLat')?.value);
+            const lon = parseFloat(document.getElementById('obsLon')?.value);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon) || !selectedSatellite) return;
+
+            const requestKey = `telemetry:${requestedSatellite}:${lat.toFixed(3)}:${lon.toFixed(3)}`;
+            if (_activeTelemetryRequestKey === requestKey) return; // identical request already in flight
+
+            // Cancel any in-flight request for a different satellite/location
+            if (_telemetryAbortController) {
+                _telemetryAbortController.abort();
+                _telemetryAbortController = null;
+            }
+
+            const controller = new AbortController();
+            _telemetryAbortController = controller;
+            _activeTelemetryRequestKey = requestKey;
+
+            try {
+                const timeoutId = setTimeout(() => controller.abort(), TELEMETRY_FETCH_TIMEOUT_MS);
+                const response = await fetch('/satellite/position', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: controller.signal,
+                    body: JSON.stringify({
+                        latitude: lat,
+                        longitude: lon,
+                        satellites: [requestedSatellite],
+                        includeTrack: false
+                    })
+                });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) return;
+                const contentType = response.headers.get('Content-Type') || '';
+                if (!contentType.includes('application/json')) return;
+                const data = await response.json();
+                if (data.status !== 'success' || !Array.isArray(data.positions)) return;
+
+                // Discard if satellite or selection changed while request was in flight
+                if (selectionToken !== _satelliteSelectionRequestToken || requestedSatellite !== selectedSatellite) return;
+
+                const pos = data.positions.find(p => parseInt(p.norad_id, 10) === requestedSatellite) || null;
+                if (!pos) return;
+                cacheLivePosition(requestedSatellite, pos);
+                handleLivePositions(data.positions, 'poll');
+
+            } catch (err) {
+                if (err?.name === 'AbortError') return; // expected on cancel/timeout
+                console.debug('Telemetry fetch error:', err);
+            } finally {
+                // Always release the controller slot so the next poll can run
+                if (_telemetryAbortController === controller) {
+                    _telemetryAbortController = null;
+                }
+                if (_activeTelemetryRequestKey === requestKey) {
+                    _activeTelemetryRequestKey = null;
+                }
+            }
+        }
+
+        function startTelemetryPolling() {
+            if (_telemetryPollTimer) return;
+            _telemetryPollTimer = setInterval(fetchCurrentTelemetry, TELEMETRY_POLL_INTERVAL_MS);
+        }
+
+        function splitAtAntimeridian(track) {
+            const segments = [];
+            let current = [];
+            for (let i = 0; i < track.length; i++) {
+                const p = track[i];
+                if (current.length > 0) {
+                    const prev = current[current.length - 1];
+                    if ((prev.lon > 90 && p.lon < -90) || (prev.lon < -90 && p.lon > 90)) {
+                        if (current.length >= 2) segments.push(current);
+                        current = [];
+                    }
+                }
+                current.push(p);
+            }
+            if (current.length >= 2) segments.push(current);
+            return segments;
+        }
+
+        function getSelectedPass() {
+            return Number.isInteger(selectedPass) && passes[selectedPass] ? passes[selectedPass] : null;
+        }
+
+        function setMapViewMode(mode) {
+            mapViewMode = mode;
+            updateMapModeButtons();
+            renderMapTrackOverlays();
+            updateMapTrackSummary();
+        }
+
+        function toggleMapFollow() {
+            mapFollowMode = !mapFollowMode;
+            const btn = document.getElementById('mapFollowBtn');
+            if (btn) btn.classList.toggle('active', mapFollowMode);
+            if (mapFollowMode) {
+                fitMapToActiveTrack();
+            }
+        }
+
+        function updateMapModeButtons() {
+            const ids = {
+                both: 'mapModeBothBtn',
+                pass: 'mapModePassBtn',
+                live: 'mapModeLiveBtn'
+            };
+            Object.entries(ids).forEach(([mode, id]) => {
+                const el = document.getElementById(id);
+                if (el) el.classList.toggle('active', mapViewMode === mode);
+            });
+        }
+
+        function createTrackWaypoint(layer, latlng, label, color, tooltipClass) {
+            return L.circleMarker(latlng, {
+                radius: 5,
+                color: '#f4fbff',
+                weight: 2,
+                fillColor: color,
+                fillOpacity: 1,
+                opacity: 0.95
+            })
+                .bindTooltip(label, {
+                    permanent: true,
+                    direction: 'top',
+                    className: `map-track-tooltip ${tooltipClass}`
+                })
+                .addTo(layer);
+        }
+
+        function addSegmentSeries(layer, segment, styles) {
+            if (!Array.isArray(segment) || segment.length < 2) return;
+            styles.forEach(style => {
+                L.polyline(segment, style).addTo(layer);
+            });
+        }
+
+        function renderPassTrackLayer(pass) {
+            const track = Array.isArray(pass?.groundTrack) ? pass.groundTrack : [];
+            if (!track.length) return null;
+
+            const color = pass.color || satellites[selectedSatellite]?.color || _satAccent;
+            const layer = L.layerGroup();
+            const segments = splitAtAntimeridian(track);
+            const bounds = [];
+
+            segments.forEach(segObj => {
+                const seg = segObj.map(p => [p.lat, p.lon]);
+                if (seg.length < 2) return;
+                addSegmentSeries(layer, seg, [
+                    { color, weight: 16, opacity: 0.06, lineCap: 'round' },
+                    { color, weight: 8, opacity: 0.18, lineCap: 'round' },
+                    { color, weight: 3.5, opacity: 0.95, lineCap: 'round' }
+                ]);
+                bounds.push(...seg);
+            });
+
+            const first = track[0];
+            const mid = track[Math.floor(track.length / 2)];
+            const last = track[track.length - 1];
+            if (first) createTrackWaypoint(layer, [first.lat, first.lon], 'AOS', '#38c180', 'aos');
+            if (mid) createTrackWaypoint(layer, [mid.lat, mid.lon], 'TCA', color, 'tca');
+            if (last) createTrackWaypoint(layer, [last.lat, last.lon], 'LOS', '#d6a85e', 'los');
+
+            return { layer, bounds };
+        }
+
+        function renderLiveOrbitLayer(position) {
+            const track = Array.isArray(position?.groundTrack) ? position.groundTrack : [];
+            if (!track.length) return null;
+
+            const color = '#38c180';
+            const layer = L.layerGroup();
+            const bounds = [];
+            const segments = splitAtAntimeridian(track);
+
+            segments.forEach(segObj => {
+                const past = segObj.filter(p => p.past).map(p => [p.lat, p.lon]);
+                const future = segObj.filter(p => !p.past).map(p => [p.lat, p.lon]);
+                if (past.length > 1) {
+                    addSegmentSeries(layer, past, [
+                        { color, weight: 10, opacity: 0.05, lineCap: 'round' },
+                        { color, weight: 2.5, opacity: 0.3, lineCap: 'round' }
+                    ]);
+                    bounds.push(...past);
+                }
+                if (future.length > 1) {
+                    addSegmentSeries(layer, future, [
+                        { color, weight: 12, opacity: 0.08, lineCap: 'round' },
+                        { color, weight: 3, opacity: 0.85, dashArray: '10 8', lineCap: 'round' }
+                    ]);
+                    bounds.push(...future);
+                }
+            });
+
+            if (position.lat != null && position.lon != null) {
+                createTrackWaypoint(layer, [position.lat, position.lon], 'NOW', '#d6a85e', 'now');
+            }
+
+            return { layer, bounds };
+        }
+
+        function updateMapTrackSummary() {
+            const primary = document.getElementById('mapTrackPrimary');
+            const secondary = document.getElementById('mapTrackSecondary');
+            if (!primary || !secondary) return;
+
+            const pass = getSelectedPass();
+            const live = latestLivePosition;
+            const nextTime = pass?.aosTime ? new Date(pass.aosTime).toISOString().substring(11, 16) + ' UTC' : null;
+            const liveElevation = _isFiniteNumber(live?.elevation ?? live?.el) ? (live.elevation ?? live.el).toFixed(1) + '°' : '--.-°';
+            const liveLat = _isFiniteNumber(live?.lat) ? live.lat.toFixed(2) + '°' : '--.--°';
+            const liveLon = _isFiniteNumber(live?.lon) ? live.lon.toFixed(2) + '°' : '--.--°';
+
+            if (mapViewMode === 'both' && pass && live) {
+                primary.textContent = `${pass.satellite} pass corridor plus live orbit context`;
+                secondary.textContent = `Next rise ${nextTime || '--:-- UTC'} · peak ${pass.maxEl ?? '--'}° · current elevation ${liveElevation}`;
+                return;
+            }
+            if (mapViewMode === 'pass' && pass) {
+                primary.textContent = `${pass.satellite} pass corridor`;
+                secondary.textContent = `AOS ${nextTime || '--:-- UTC'} · peak ${pass.maxEl ?? '--'}° · duration ${pass.duration ?? '--'} min`;
+                return;
+            }
+            if (mapViewMode === 'live' && live) {
+                primary.textContent = `${satellites[selectedSatellite]?.name || 'Selected satellite'} live orbit track`;
+                secondary.textContent = `Subpoint ${liveLat}, ${liveLon} · elevation ${liveElevation}`;
+                return;
+            }
+            if (pass) {
+                primary.textContent = `${pass.satellite} pass corridor ready`;
+                secondary.textContent = `Select FIT to frame the path, or switch to LIVE for the current orbit track.`;
+                return;
+            }
+            if (live) {
+                primary.textContent = `${satellites[selectedSatellite]?.name || 'Selected satellite'} live subpoint available`;
+                secondary.textContent = 'Awaiting pass prediction data. You can still inspect the current orbit track.';
+                return;
+            }
+            primary.textContent = 'Awaiting orbit and pass geometry';
+            secondary.textContent = 'Choose a satellite and calculate passes to populate the corridor view.';
+        }
+
+        function renderMapTrackOverlays(options = {}) {
+            if (!groundMap) return;
+            const { fit = false, refreshPass = true, refreshLive = true } = options;
+
+            if (refreshPass && trackLine) { groundMap.removeLayer(trackLine); trackLine = null; }
+            if (refreshLive && orbitTrack) { groundMap.removeLayer(orbitTrack); orbitTrack = null; }
+            if (satMarker) { groundMap.removeLayer(satMarker); satMarker = null; }
+
+            const bounds = [];
+            const pass = getSelectedPass();
+            const showPass = mapViewMode !== 'live';
+            const showLive = mapViewMode !== 'pass';
+
+            if (showPass && pass && (refreshPass || !trackLine)) {
+                const renderedPass = renderPassTrackLayer(pass);
+                if (renderedPass) {
+                    trackLine = renderedPass.layer;
+                    trackLine.addTo(groundMap);
+                    bounds.push(...renderedPass.bounds);
+                }
+            } else if (trackLine) {
+                bounds.push(...(getSelectedPass()?.groundTrack || []).map(p => [p.lat, p.lon]));
+            }
+
+            if (showLive && latestLivePosition && (refreshLive || !orbitTrack)) {
+                const renderedLive = renderLiveOrbitLayer(latestLivePosition);
+                if (renderedLive) {
+                    orbitTrack = renderedLive.layer;
+                    orbitTrack.addTo(groundMap);
+                    bounds.push(...renderedLive.bounds);
+                }
+            } else if (orbitTrack) {
+                const liveTrack = Array.isArray(latestLivePosition?.groundTrack)
+                    ? latestLivePosition.groundTrack
+                    : (Array.isArray(latestLivePosition?.track) ? latestLivePosition.track : []);
+                bounds.push(...liveTrack.map(p => [p.lat, p.lon]));
+            }
+
+            const satColor = satellites[selectedSatellite]?.color || _satAccent;
+            const currentPos = latestLivePosition?.lat != null && latestLivePosition?.lon != null
+                ? { lat: latestLivePosition.lat, lon: latestLivePosition.lon }
+                : (pass?.currentPos?.lat != null && pass?.currentPos?.lon != null
+                    ? { lat: pass.currentPos.lat, lon: pass.currentPos.lon }
+                    : null);
+
+            if (currentPos) {
+                const satIcon = L.divIcon({
+                    className: 'sat-marker-live',
+                    html: `<div style="width:20px;height:20px;background:${satColor};border-radius:50%;border:3px solid #fff;box-shadow:0 0 20px ${satColor},0 0 40px ${satColor};"></div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+                satMarker = L.marker([currentPos.lat, currentPos.lon], { icon: satIcon })
+                    .addTo(groundMap)
+                    .bindTooltip('CURRENT SUBPOINT', {
+                        permanent: false,
+                        direction: 'top',
+                        className: 'map-track-tooltip now'
+                    });
+            }
+
+            if (fit && bounds.length) {
+                groundMap.fitBounds(L.latLngBounds(bounds), {
+                    padding: [40, 40],
+                    maxZoom: 5
+                });
+            } else if (mapFollowMode && currentPos) {
+                groundMap.panTo([currentPos.lat, currentPos.lon], { animate: true, duration: 0.6 });
+            }
+        }
+
+        function fitMapToActiveTrack() {
+            renderMapTrackOverlays({ fit: true });
+        }
+
+        // Listen for visibility messages from parent page (embedded mode)
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'satellite-visibility') {
+                if (event.data.visible) {
+                    startSSETracking();
+                } else {
+                    stopSSETracking();
+                }
+            }
+        });
+
+        function refreshSatelliteCatalogOnFocus() {
+            if ((Date.now() - _lastSatelliteCatalogRefresh) < 60000) return;
+            loadDashboardSatellites(false);
+        }
+
+        // Refresh the catalog on focus only occasionally, and do not clobber
+        // working pass/telemetry panes when we already have cached state.
+        window.addEventListener('focus', refreshSatelliteCatalogOnFocus);
+        function teardownSatelliteDashboard() {
+            _pageTearingDown = true;
+            stopSSETracking();
+            if (_telemetryPollTimer) {
+                clearInterval(_telemetryPollTimer);
+                _telemetryPollTimer = null;
+            }
+            if (_clockTimer) {
+                VisibleInterval.clear(_clockTimer);
+                _clockTimer = null;
+            }
+            if (_countdownTimer) {
+                VisibleInterval.clear(_countdownTimer);
+                _countdownTimer = null;
+            }
+            if (_dashboardRetryTimer) {
+                clearTimeout(_dashboardRetryTimer);
+                _dashboardRetryTimer = null;
+            }
+            if (_telemetryAbortController) {
+                _telemetryAbortController.abort();
+                _telemetryAbortController = null;
+            }
+            if (_passAbortController) {
+                _passAbortController.abort('pagehide');
+                _passAbortController = null;
+            }
+            if (_passTimeoutId) {
+                clearTimeout(_passTimeoutId);
+                _passTimeoutId = null;
+            }
+            closePacketModal();
+            if (_gsEventSource) {
+                _gsEventSource.close();
+                _gsEventSource = null;
+            }
+            if (window.GroundStationWaterfall) {
+                GroundStationWaterfall.disconnect();
+            }
+        }
+
+        window.addEventListener('pagehide', teardownSatelliteDashboard);
+        window.addEventListener('beforeunload', teardownSatelliteDashboard);
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closePacketModal();
+                closeSatModal();
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            _pageTearingDown = false;
+            _satelliteSelectionRequestToken += 1;
+            renderPacketPanels();
+            setupEmbeddedMode();
+            const usedShared = applySharedObserverLocation();
+            initGroundMap();
+            loadTrackedSatelliteCatalog();
+            loadReceiverDevices();
+            loadDashboardSatellites();
+            updateClock();
+            _clockTimer = VisibleInterval.set(updateClock, 1000);
+            _countdownTimer = VisibleInterval.set(updateCountdown, 1000);
+            // In standalone mode, start SSE tracking immediately.
+            // In embedded mode, wait for parent to signal visibility.
+            if (!isEmbedded) {
+                startSSETracking();
+            }
+            startTelemetryPolling();
+            loadAgents();
+            scheduleDashboardDataRetry(3500);
+            if (!usedShared) {
+                getLocation();
+            }
+        });
+
+        async function loadAgents() {
+            try {
+                const response = await fetch('/controller/agents');
+                const data = await response.json();
+                if (data.status === 'success' && data.agents) {
+                    agents = data.agents;
+                    populateLocationSelector();
+                }
+            } catch (err) {
+                console.log('No agents available (controller not running)');
+            }
+        }
+
+        function populateLocationSelector() {
+            const select = document.getElementById('locationSource');
+            if (!select) return;
+
+            // Keep local option, add agents with GPS
+            agents.forEach(agent => {
+                const option = document.createElement('option');
+                option.value = 'agent-' + agent.id;
+                option.textContent = agent.name;
+                if (agent.gps_coords) {
+                    option.textContent += ' (GPS)';
+                }
+                select.appendChild(option);
+            });
+
+            select.addEventListener('change', onLocationSourceChange);
+        }
+
+        async function onLocationSourceChange() {
+            const select = document.getElementById('locationSource');
+            const value = select.value;
+            currentLocationSource = value;
+
+            const statusDot = document.getElementById('locationStatusDot');
+
+            if (value === 'local') {
+                // Use local GPS
+                statusDot.className = 'location-status-dot online';
+                updateMissionDrawerInfo();
+                getLocation();
+            } else if (value.startsWith('agent-')) {
+                // Fetch agent's GPS position
+                const agentId = value.replace('agent-', '');
+                try {
+                    statusDot.className = 'location-status-dot online';
+                    const response = await fetch(`/controller/agents/${agentId}/status`);
+                    const data = await response.json();
+
+                    if (data.status === 'success' && data.result) {
+                        const agentStatus = data.result;
+                        if (agentStatus.gps_position) {
+                            const gps = agentStatus.gps_position;
+                            document.getElementById('obsLat').value = gps.lat.toFixed(4);
+                            document.getElementById('obsLon').value = gps.lon.toFixed(4);
+                            if (window.ObserverLocation && ObserverLocation.isSharedEnabled()) {
+                                ObserverLocation.setShared({ lat: gps.lat, lon: gps.lon });
+                            }
+                            updateMissionDrawerInfo();
+
+                            // Update observer marker label
+                            const agent = agents.find(a => a.id == agentId);
+                            if (agent) {
+                                console.log(`Using GPS from agent: ${agent.name} (${gps.lat.toFixed(4)}, ${gps.lon.toFixed(4)})`);
+                            }
+
+                            calculatePasses();
+                        } else {
+                            alert('Agent does not have GPS data available');
+                            statusDot.className = 'location-status-dot offline';
+                            updateMissionDrawerInfo();
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to get agent GPS:', err);
+                    statusDot.className = 'location-status-dot offline';
+                    updateMissionDrawerInfo();
+                    alert('Failed to connect to agent');
+                }
+            }
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('utcTime').textContent =
+                now.toISOString().substring(11, 19) + ' UTC';
+        }
+
+
+        async function initGroundMap() {
+            const mapContainer = document.getElementById('groundMap');
+            if (!mapContainer || groundMap) return;
+
+            groundMap = MapUtils.init('groundMap', {
+                center: [20, 0],
+                zoom: 1,
+                minZoom: 1,
+                maxZoom: 10,
+                attributionControl: false,
+            });
+            if (!groundMap) return;
+            window.groundMap = groundMap;
+
+            // No HUD: its clock repeated the header's UTC clock over the packet
+            // console, and its count was always 0. The grid button goes under
+            // the zoom buttons, clear of the track card at the bottom left.
+            satMapOverlays = MapUtils.addTacticalOverlays(groundMap, {
+                scaleBar: true,
+                graticulePosition: 'topleft',
+            });
+
+            // Add observer marker via reticle
+            const lat = parseFloat(document.getElementById('obsLat')?.value) || 51.5;
+            const lon = parseFloat(document.getElementById('obsLon')?.value) || -0.1;
+            observerMarker = MapUtils._buildReticle([lat, lon]);
+            observerMarker.addTo(groundMap);
+
+            requestAnimationFrame(() => groundMap?.invalidateSize(false));
+            setTimeout(() => groundMap?.invalidateSize(false), 250);
+            updateMapModeButtons();
+            updateMapTrackSummary();
+        }
+
+        function getLocation() {
+            const fallback = setTimeout(() => {
+                calculatePasses();
+                fetchCurrentTelemetry();
+                updateMissionDrawerInfo();
+            }, 2500);
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    clearTimeout(fallback);
+                    const lat = pos.coords.latitude;
+                    const lon = pos.coords.longitude;
+                    document.getElementById('obsLat').value = lat.toFixed(4);
+                    document.getElementById('obsLon').value = lon.toFixed(4);
+                    if (window.ObserverLocation && ObserverLocation.isSharedEnabled()) {
+                        ObserverLocation.setShared({ lat, lon });
+                    }
+                    updateMissionDrawerInfo();
+                    calculatePasses();
+                    fetchCurrentTelemetry();
+                }, () => {
+                    clearTimeout(fallback);
+                    calculatePasses();
+                    fetchCurrentTelemetry();
+                }, {
+                    enableHighAccuracy: false,
+                    timeout: 4000,
+                    maximumAge: 300000,
+                });
+            } else {
+                clearTimeout(fallback);
+                calculatePasses();
+                fetchCurrentTelemetry();
+            }
+        }
+
+        async function calculatePasses(requestedSatellite = selectedSatellite, selectionToken = _satelliteSelectionRequestToken) {
+            const lat = parseFloat(document.getElementById('obsLat').value);
+            const lon = parseFloat(document.getElementById('obsLon').value);
+            const requestTargets = Number.isFinite(requestedSatellite) ? [requestedSatellite] : getPassPredictionTargets();
+            const requestKey = getActivePassRequestKey(requestTargets);
+            const container = document.getElementById('passList');
+            const button = document.querySelector('.controls-bar .btn.primary');
+
+            if (_passAbortController && _activePassRequestKey === requestKey) {
+                return;
+            }
+
+            const requestId = ++_passRequestId;
+
+            const shouldReplacePassPane = !passes.length;
+            if (container && shouldReplacePassPane) {
+                container.innerHTML = '<div class="ui-loading">Calculating passes…</div>';
+            }
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'WORKING...';
+            }
+
+            if (_passAbortController) {
+                _passAbortController.abort('superseded');
+                _passAbortController = null;
+            }
+            if (_passTimeoutId) {
+                clearTimeout(_passTimeoutId);
+                _passTimeoutId = null;
+            }
+            _activePassRequestKey = requestKey;
+
+            try {
+                const controller = new AbortController();
+                _passAbortController = controller;
+                _passTimeoutId = setTimeout(() => controller.abort('timeout'), PASS_FETCH_TIMEOUT_MS);
+                const response = await fetch('/satellite/predict', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: controller.signal,
+                    body: JSON.stringify({
+                        latitude: lat,
+                        longitude: lon,
+                        hours: 48,
+                        minEl: 5,
+                        satellites: requestTargets
+                    })
+                });
+                if (_passTimeoutId) {
+                    clearTimeout(_passTimeoutId);
+                    _passTimeoutId = null;
+                }
+                // Keep _passAbortController set until AFTER response.json() so
+                // the retry scheduler doesn't incorrectly see the request as
+                // finished (passes=0 + no controller) and increment _passRequestId
+                // mid-parse, which would cause this response to be discarded.
+                if (_activePassRequestKey === requestKey) {
+                    _activePassRequestKey = null;
+                }
+
+                const contentType = response.headers.get('Content-Type') || '';
+                if (!contentType.includes('application/json')) {
+                    throw new Error('Unexpected response while calculating passes');
+                }
+                const data = await response.json();
+                // Now safe to release the controller slot
+                if (_passAbortController === controller) {
+                    _passAbortController = null;
+                }
+                if (requestId !== _passRequestId) return;
+                if (data.status === 'success') {
+                    const resolvedPasses = Array.isArray(data.passes) ? data.passes : [];
+                    cachePredictedPassBatch(resolvedPasses, requestTargets);
+                    if (selectionToken !== _satelliteSelectionRequestToken || requestedSatellite !== selectedSatellite) {
+                        return;
+                    }
+
+                    try {
+                        applySelectedSatellitePasses();
+                    } catch (renderErr) {
+                        console.error('Satellite pass list render error:', renderErr);
+                    }
+
+                    try {
+                        updateObserverMarker(lat, lon);
+                    } catch (markerErr) {
+                        console.error('Satellite observer marker error:', markerErr);
+                    }
+
+                    document.getElementById('trackingStatus').textContent = 'TRACKING';
+                    document.getElementById('trackingDot').style.background = 'var(--accent-green)';
+                    _dashboardRetryAttempts = 0;
+                } else {
+                    if (selectionToken === _satelliteSelectionRequestToken && requestedSatellite === selectedSatellite && applySelectedSatellitePasses()) {
+                        document.getElementById('trackingStatus').textContent = 'TRACKING';
+                        document.getElementById('trackingDot').style.background = 'var(--accent-green)';
+                    } else {
+                        document.getElementById('trackingStatus').textContent = 'ERROR';
+                        document.getElementById('trackingDot').style.background = 'var(--accent-red)';
+                        if (container) {
+                            container.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:20px;">${data.message || 'Failed to calculate passes'}</div>`;
+                        }
+                    }
+                }
+            } catch (err) {
+                const isAbort = err && (err.name === 'AbortError' || String(err).includes('AbortError'));
+                if (_passTimeoutId) {
+                    clearTimeout(_passTimeoutId);
+                    _passTimeoutId = null;
+                }
+                if (_passAbortController && _passAbortController.signal.aborted) {
+                    _passAbortController = null;
+                }
+                if (_activePassRequestKey === requestKey) {
+                    _activePassRequestKey = null;
+                }
+                if (requestId !== _passRequestId) return;
+                if (isAbort) {
+                    return;
+                }
+                console.error('Pass calculation error:', err);
+                if (selectionToken === _satelliteSelectionRequestToken && requestedSatellite === selectedSatellite && applySelectedSatellitePasses()) {
+                    document.getElementById('trackingStatus').textContent = 'TRACKING';
+                    document.getElementById('trackingDot').style.background = 'var(--accent-green)';
+                } else {
+                    if (container) {
+                        container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">Failed to calculate passes</div>';
+                    } else {
+                        renderPassList();
+                    }
+                    document.getElementById('trackingStatus').textContent = 'OFFLINE';
+                    document.getElementById('trackingDot').style.background = 'var(--accent-red)';
+                }
+                updateMissionDrawerInfo();
+                scheduleDashboardDataRetry(3500);
+            } finally {
+                if (_activePassRequestKey === requestKey) {
+                    _activePassRequestKey = null;
+                }
+                if (requestId === _passRequestId && button) {
+                    button.disabled = false;
+                    button.textContent = 'CALCULATE';
+                }
+            }
+        }
+
+        // Satellites that can be handed off to the weather-satellite capture mode
+        const WEATHER_SAT_KEYS = new Set([
+            'METEOR-M2-3', 'METEOR-M2-4'
+        ]);
+
+        function renderPassList() {
+            const container = document.getElementById('passList');
+            const countEl = document.getElementById('passCount');
+
+            if (passes.length === 0) {
+                container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">No passes found</div>';
+                if (countEl) countEl.textContent = '';
+                updateMapTrackSummary();
+                updateMissionDrawerInfo();
+                return;
+            }
+
+            if (countEl) countEl.textContent = `(${passes.length})`;
+
+            container.innerHTML = passes.slice(0, 10).map((pass, idx) => {
+                const quality = pass.maxEl >= 60 ? 'excellent' : pass.maxEl >= 30 ? 'good' : 'fair';
+                const qualityText = pass.maxEl >= 60 ? 'EXCELLENT' : pass.maxEl >= 30 ? 'GOOD' : 'FAIR';
+                const aosAz = pass.aosAz != null ? pass.aosAz.toFixed(0) + '°' : '--';
+                const tcaEl = pass.tcaEl != null ? pass.tcaEl.toFixed(0) + '°' : (pass.maxEl != null ? pass.maxEl.toFixed(0) + '°' : '--');
+                const tcaAz = pass.tcaAz != null ? pass.tcaAz.toFixed(0) + '°' : '--';
+                const losAz = pass.losAz != null ? pass.losAz.toFixed(0) + '°' : '--';
+                const timeStr = (pass.aosTime || pass.startTime || '').split('T')[1]?.substring(0, 5) || pass.startTime?.split(' ')[1] || '--:--';
+                const isWeatherSat = WEATHER_SAT_KEYS.has(pass.satellite);
+                const captureBtn = isWeatherSat
+                    ? `<button class="pass-capture-btn" onclick="event.stopPropagation(); handoffToWeatherSat(${idx})" title="Switch to Weather Satellite mode for this pass">→ Capture</button>`
+                    : '';
+
+                return `
+                    <div class="pass-item ${selectedPass === idx ? 'active' : ''}" onclick="selectPass(${idx})">
+                        <div class="pass-item-header">
+                            <span class="pass-sat-name">${pass.satellite}</span>
+                            <span class="pass-quality ${quality}">${qualityText}</span>
+                        </div>
+                        <div class="pass-item-details">
+                            <span class="pass-time">${timeStr} UTC</span>
+                            <span>${tcaEl} · ${pass.duration} min</span>
+                        </div>
+                        <div class="pass-event-row">
+                            <span title="AOS azimuth">↑ ${aosAz}</span>
+                            <span title="TCA azimuth">⊙ ${tcaAz}</span>
+                            <span title="LOS azimuth">↓ ${losAz}</span>
+                            ${captureBtn}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function handoffToWeatherSat(passIdx) {
+            const pass = passes[passIdx];
+            if (!pass) return;
+
+            const msg = {
+                type: 'weather-sat-handoff',
+                satellite: pass.satellite,
+                aosTime: pass.aosTime || pass.startTimeISO,
+                tcaEl: pass.tcaEl ?? pass.maxEl,
+                duration: pass.duration,
+            };
+
+            // Prefer parent (embedded iframe), fall back to opener (new window)
+            const target = window.parent !== window ? window.parent : window.opener;
+            if (target) {
+                target.postMessage(msg, '*');
+                return;
+            }
+
+            try {
+                if (window.sessionStorage) {
+                    window.sessionStorage.setItem('intercept.pendingWeatherSatHandoff', JSON.stringify(msg));
+                } else if (window.localStorage) {
+                    window.localStorage.setItem('intercept.pendingWeatherSatHandoff', JSON.stringify(msg));
+                }
+            } catch (_) {}
+
+            window.location.assign('/?mode=weathersat');
+        }
+
+        function selectPass(idx) {
+            selectedPass = idx;
+            renderPassList();
+
+            const pass = passes[idx];
+            if (!pass) return;
+
+            drawPolarPlot(pass);
+            updateGroundTrack(pass);
+            updateTelemetry(pass);
+            updateMapTrackSummary();
+            updateMissionDrawerInfo();
+        }
+
+        function drawPolarPlot(pass) {
+            const canvas = document.getElementById('polarPlot');
+            const ctx = canvas.getContext('2d');
+            const size = canvas.offsetWidth || 300;
+            canvas.width = size;
+            canvas.height = size;
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = Math.max(10, Math.min(cx, cy) - 40);
+
+            const cs = getComputedStyle(document.documentElement);
+            const bgColor = cs.getPropertyValue('--bg-card').trim() || '#0a0a0f';
+            const accentCyan = cs.getPropertyValue('--accent-cyan').trim() || '#00d4ff';
+            const accentRed = cs.getPropertyValue('--accent-red').trim() || '#ff4444';
+            const textDim = cs.getPropertyValue('--text-dim').trim() || 'rgba(0,212,255,0.4)';
+
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Elevation rings
+            ctx.strokeStyle = accentCyan + '26'; // ~15% opacity
+            ctx.lineWidth = 1;
+            for (let el = 30; el <= 90; el += 30) {
+                const r = radius * (1 - el / 90);
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.fillStyle = textDim;
+                ctx.font = '10px Roboto Condensed';
+                ctx.fillText(el + '°', cx + 5, cy - r + 12);
+            }
+
+            // Horizon
+            ctx.strokeStyle = accentCyan + '4D'; // ~30% opacity
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Cardinal lines
+            ctx.strokeStyle = accentCyan + '1A'; // ~10% opacity
+            ctx.lineWidth = 1;
+            for (let az = 0; az < 360; az += 45) {
+                const angle = (az - 90) * Math.PI / 180;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle));
+                ctx.stroke();
+            }
+
+            // Cardinal labels
+            ctx.font = 'bold 14px Orbitron';
+            const labels = [
+                { text: 'N', az: 0, color: accentRed },
+                { text: 'E', az: 90, color: accentCyan },
+                { text: 'S', az: 180, color: accentCyan },
+                { text: 'W', az: 270, color: accentCyan }
+            ];
+            labels.forEach(l => {
+                const angle = (l.az - 90) * Math.PI / 180;
+                const x = cx + (radius + 20) * Math.cos(angle);
+                const y = cy + (radius + 20) * Math.sin(angle);
+                ctx.fillStyle = l.color;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(l.text, x, y);
+            });
+
+            // Pass data strip
+            const strip = document.getElementById('passDataStrip');
+            if (strip) {
+                if (pass && pass.aosTime) {
+                    const fmtTime = iso => iso ? iso.slice(11, 16) + ' UTC' : '--';
+                    strip.className = 'pass-data-strip';
+                    strip.innerHTML = `
+                        <div class="pass-data-grid">
+                            <div class="pass-data-col">
+                                <div class="pass-data-event">AOS</div>
+                                <div class="pass-data-time">${fmtTime(pass.aosTime)}</div>
+                                <div class="pass-data-sub">Az ${pass.aosAz}°</div>
+                            </div>
+                            <div class="pass-data-col pass-data-tca">
+                                <div class="pass-data-event">TCA</div>
+                                <div class="pass-data-time">${fmtTime(pass.tcaTime)}</div>
+                                <div class="pass-data-sub">El ${pass.tcaEl}°</div>
+                            </div>
+                            <div class="pass-data-col">
+                                <div class="pass-data-event">LOS</div>
+                                <div class="pass-data-time">${fmtTime(pass.losTime)}</div>
+                                <div class="pass-data-sub">Az ${pass.losAz}°</div>
+                            </div>
+                        </div>
+                        <div class="pass-data-footer">Duration ${pass.duration} min &nbsp;·&nbsp; Max El ${pass.maxEl}°</div>
+                    `;
+                } else {
+                    strip.className = 'pass-data-strip pass-data-strip--empty';
+                    strip.innerHTML = '<span>Select a pass to view geometry</span>';
+                }
+            }
+
+            // Pass trajectory
+            if (pass && pass.trajectory) {
+                ctx.strokeStyle = pass.color || _satAccent;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([8, 4]);
+                ctx.beginPath();
+
+                let maxElPoint = null;
+                let maxEl = 0;
+
+                pass.trajectory.forEach((pt, i) => {
+                    const r = radius * (1 - pt.el / 90);
+                    const angle = (pt.az - 90) * Math.PI / 180;
+                    const x = cx + r * Math.cos(angle);
+                    const y = cy + r * Math.sin(angle);
+
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+
+                    if (pt.el > maxEl) {
+                        maxEl = pt.el;
+                        maxElPoint = { x, y };
+                    }
+                });
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                if (maxElPoint) {
+                    ctx.beginPath();
+                    ctx.arc(maxElPoint.x, maxElPoint.y, 8, 0, Math.PI * 2);
+                    ctx.fillStyle = pass.color || _satAccent;
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+        }
+
+        function updateGroundTrack(pass) {
+            if (!groundMap) return;
+            renderMapTrackOverlays({ fit: true });
+        }
+
+        function updateObserverMarker(lat, lon) {
+            if (!groundMap) return;
+
+            if (observerMarker) groundMap.removeLayer(observerMarker);
+
+            // Determine location label
+            let locationLabel = 'Local Observer';
+            if (currentLocationSource && currentLocationSource.startsWith('agent-')) {
+                const agentId = currentLocationSource.replace('agent-', '');
+                const agent = agents.find(a => a.id == agentId);
+                if (agent) {
+                    locationLabel = agent.name;
+                }
+            }
+
+            observerMarker = MapUtils._buildReticle([lat, lon]);
+            observerMarker.addTo(groundMap);
+            observerMarker.bindPopup(`<b>${locationLabel}</b><br>${lat.toFixed(4)}°, ${lon.toFixed(4)}°`);
+        }
+
+        function updateStats() {
+            document.getElementById('statTracked').textContent = Object.keys(satellites).length;
+            document.getElementById('statPasses').textContent = passes.length;
+
+            const maxEl = passes.reduce((max, p) => Math.max(max, p.maxEl || 0), 0);
+            document.getElementById('statMaxEl').textContent = maxEl.toFixed(0) + '°';
+        }
+
+        function updateTelemetry(pass) {
+            if (latestLivePosition) {
+                applyTelemetryPosition(latestLivePosition);
+                return;
+            }
+            if (!pass || !pass.currentPos) {
+                clearTelemetry();
+                return;
+            }
+            // currentPos now contains full position data (lat, lon, altitude,
+            // elevation, azimuth, distance, visible) from the predict endpoint.
+            applyTelemetryPosition(pass.currentPos);
+        }
+
+        function updateCountdown() {
+            if (!passes || passes.length === 0) {
+                document.getElementById('countdownSat').textContent = 'NO PASSES FOUND';
+                document.getElementById('countDays').textContent = '--';
+                document.getElementById('countHours').textContent = '--';
+                document.getElementById('countMins').textContent = '--';
+                document.getElementById('countSecs').textContent = '--';
+                return;
+            }
+
+            const now = new Date();
+            let nextPass = null;
+
+            for (const pass of passes) {
+                const start = new Date(pass.startTimeISO);
+                if (start > now) {
+                    nextPass = pass;
+                    break;
+                }
+            }
+
+            if (!nextPass) {
+                // All passes in the current window are in the past
+                document.getElementById('countdownSat').textContent = 'NO UPCOMING PASSES';
+                document.getElementById('countDays').textContent = '--';
+                document.getElementById('countHours').textContent = '--';
+                document.getElementById('countMins').textContent = '--';
+                document.getElementById('countSecs').textContent = '--';
+                ['countDays', 'countHours', 'countMins', 'countSecs'].forEach(id => {
+                    document.getElementById(id)?.classList.remove('active');
+                });
+                return;
+            }
+
+            document.getElementById('countdownSat').textContent = nextPass.satellite;
+
+            const passTime = new Date(nextPass.startTimeISO);
+            const diff = passTime - now;
+
+            if (diff <= 0) {
+                document.getElementById('countDays').textContent = '00';
+                document.getElementById('countHours').textContent = '00';
+                document.getElementById('countMins').textContent = '00';
+                document.getElementById('countSecs').textContent = '00';
+                return;
+            }
+
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const secs = Math.floor((diff % (1000 * 60)) / 1000);
+
+            document.getElementById('countDays').textContent = days.toString().padStart(2, '0');
+            document.getElementById('countHours').textContent = hours.toString().padStart(2, '0');
+            document.getElementById('countMins').textContent = mins.toString().padStart(2, '0');
+            document.getElementById('countSecs').textContent = secs.toString().padStart(2, '0');
+
+            const elements = ['countDays', 'countHours', 'countMins', 'countSecs'].map(id => document.getElementById(id));
+            if (diff < 60000) {
+                elements.forEach(el => el.classList.add('active'));
+            } else {
+                elements.forEach(el => el.classList.remove('active'));
+            }
+        }
+
+        function drawPolarPlotWithPosition(az, el, color) {
+            const canvas = document.getElementById('polarPlot');
+            const ctx = canvas.getContext('2d');
+            const size = canvas.offsetWidth || 300;
+            canvas.width = size;
+            canvas.height = size;
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = Math.max(10, Math.min(cx, cy) - 40);
+
+            const cs = getComputedStyle(document.documentElement);
+            const bgColor = cs.getPropertyValue('--bg-card').trim() || '#0a0a0f';
+            const accentCyan = cs.getPropertyValue('--accent-cyan').trim() || '#00d4ff';
+            const accentRed = cs.getPropertyValue('--accent-red').trim() || '#ff4444';
+            const accentGreen = cs.getPropertyValue('--accent-green').trim() || '#00ff88';
+            const textPrimary = cs.getPropertyValue('--text-primary').trim() || '#fff';
+            const textDim = cs.getPropertyValue('--text-dim').trim() || 'rgba(0,212,255,0.4)';
+
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = accentCyan + '26';
+            ctx.lineWidth = 1;
+            for (let elRing = 30; elRing <= 90; elRing += 30) {
+                const r = radius * (1 - elRing / 90);
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.fillStyle = textDim;
+                ctx.font = '10px Roboto Condensed';
+                ctx.fillText(elRing + '°', cx + 5, cy - r + 12);
+            }
+
+            ctx.strokeStyle = accentCyan + '4D';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = accentCyan + '1A';
+            ctx.lineWidth = 1;
+            for (let azLine = 0; azLine < 360; azLine += 45) {
+                const angle = (azLine - 90) * Math.PI / 180;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle));
+                ctx.stroke();
+            }
+
+            ctx.font = 'bold 14px Orbitron';
+            const labels = [
+                { text: 'N', az: 0, color: accentRed },
+                { text: 'E', az: 90, color: accentCyan },
+                { text: 'S', az: 180, color: accentCyan },
+                { text: 'W', az: 270, color: accentCyan }
+            ];
+            labels.forEach(l => {
+                const angle = (l.az - 90) * Math.PI / 180;
+                const x = cx + (radius + 20) * Math.cos(angle);
+                const y = cy + (radius + 20) * Math.sin(angle);
+                ctx.fillStyle = l.color;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(l.text, x, y);
+            });
+
+            if (el > -5) {
+                const posEl = Math.max(0, el);
+                const r = radius * (1 - posEl / 90);
+                const angle = (az - 90) * Math.PI / 180;
+                const x = cx + r * Math.cos(angle);
+                const y = cy + r * Math.sin(angle);
+
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, 25);
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = 0.4;
+                ctx.beginPath();
+                ctx.arc(x, y, 25, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+
+                ctx.beginPath();
+                ctx.arc(x, y, 10, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = textPrimary;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                ctx.font = 'bold 11px Orbitron';
+                ctx.fillStyle = textPrimary;
+                ctx.textAlign = 'center';
+                ctx.fillText(satellites[selectedSatellite]?.name || 'SAT', x, y - 20);
+
+                ctx.font = '10px Roboto Condensed';
+                ctx.fillStyle = el > 0 ? accentGreen : accentRed;
+                ctx.fillText(el.toFixed(1) + '°', x, y + 25);
+            } else {
+                ctx.font = '12px Rajdhani';
+                ctx.fillStyle = accentRed;
+                ctx.textAlign = 'center';
+                ctx.fillText('BELOW HORIZON', cx, cy + radius + 35);
+            }
+        }
+
+        async function loadTransmitters(noradId, selectionToken = _satelliteSelectionRequestToken) {
+            const container = document.getElementById('transmittersList');
+            const countEl = document.getElementById('txCount');
+            if (!container) return;
+            const requestId = ++_txRequestId;
+            if (!noradId) {
+                container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:15px;font-size:11px;">Select a satellite</div>';
+                if (countEl) countEl.textContent = '';
+                return;
+            }
+            container.innerHTML = '<div class="ui-loading">Loading…</div>';
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 7000);
+                const r = await fetch(`/satellite/transmitters/${noradId}`, {
+                    signal: controller.signal,
+                    credentials: 'same-origin'
+                });
+                clearTimeout(timeout);
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const data = await r.json();
+                if (requestId !== _txRequestId) return;
+                if (data.status !== 'success') throw new Error('Unexpected response');
+                const txList = (data.transmitters && data.transmitters.length)
+                    ? data.transmitters
+                    : (BUILTIN_TX_FALLBACK[noradId] || []);
+                cacheTransmitters(noradId, txList);
+                if (selectionToken !== _satelliteSelectionRequestToken || noradId !== selectedSatellite) return;
+                renderTransmitters(txList);
+                updateMissionDrawerInfo();
+            } catch (e) {
+                if (requestId !== _txRequestId) return;
+                const cached = getCachedTransmitters(noradId);
+                if (cached?.transmitters?.length) {
+                    if (selectionToken !== _satelliteSelectionRequestToken || noradId !== selectedSatellite) return;
+                    renderTransmitters(cached.transmitters);
+                    updateMissionDrawerInfo();
+                    return;
+                }
+                const fallback = BUILTIN_TX_FALLBACK[noradId] || [];
+                if (fallback.length) {
+                    cacheTransmitters(noradId, fallback);
+                    if (selectionToken !== _satelliteSelectionRequestToken || noradId !== selectedSatellite) return;
+                    renderTransmitters(fallback);
+                    updateMissionDrawerInfo();
+                    return;
+                }
+                const timedOut = e && (e.name === 'AbortError' || String(e).includes('AbortError'));
+                container.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:15px;font-size:11px;">${timedOut ? 'Timed out loading transmitter data' : 'Failed to load transmitter data'}</div>`;
+                if (countEl) countEl.textContent = '';
+                scheduleDashboardDataRetry(4000);
+            }
+        }
+
+        function renderTransmitters(txList) {
+            const container = document.getElementById('transmittersList');
+            const countEl = document.getElementById('txCount');
+            if (!container) return;
+
+            const active = txList.filter(t => t.status === 'active');
+            const all = txList;
+
+            if (countEl) countEl.textContent = all.length ? `(${active.length}/${all.length})` : '';
+
+            if (!all.length) {
+                container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:15px;font-size:11px;">No transmitter data available</div>';
+                return;
+            }
+
+            container.innerHTML = all.map(tx => {
+                const isActive = tx.status === 'active';
+                const dl = tx.downlink_low != null ? tx.downlink_low.toFixed(3) + ' MHz' : null;
+                const dlHigh = tx.downlink_high != null && tx.downlink_high !== tx.downlink_low ? '–' + tx.downlink_high.toFixed(3) : '';
+                const ul = tx.uplink_low != null ? tx.uplink_low.toFixed(3) + ' MHz' : null;
+                const baud = tx.baud ? ` · ${tx.baud} Bd` : '';
+                const mode = tx.mode || '';
+                return `<div class="tx-item ${isActive ? 'tx-active' : 'tx-inactive'}">
+                    <div class="tx-status-dot" style="background:${isActive ? 'var(--accent-green)' : '#444'};"></div>
+                    <div class="tx-body">
+                        <div class="tx-desc">${tx.description || 'Unknown'}</div>
+                        ${dl ? `<div class="tx-freq">↓ ${dl}${dlHigh} ${mode}${baud}</div>` : ''}
+                        ${ul ? `<div class="tx-freq tx-uplink">↑ ${ul}</div>` : ''}
+                        <div class="tx-service">${tx.service || ''} ${tx.type || ''}</div>
+                    </div>
+                </div>`;
+            }).join('');
+            updateMissionDrawerInfo();
+        }
+
+        function showSatelliteCommandStatus(message, level = 'info') {
+            const el = document.getElementById('satCommandStatus');
+            if (!el) return;
+            el.textContent = message;
+            el.dataset.level = level;
+        }
+
+        function getSelectedReceiverConfig() {
+            const select = document.getElementById('gsReceiverSelect');
+            const option = select?.selectedOptions?.[0];
+            return {
+                device: parseInt(select?.value || '0') || 0,
+                sdr_type: option?.dataset?.sdrType || 'rtlsdr',
+                label: option?.textContent?.trim() || 'Receiver 0',
+            };
+        }
+
+        function updateMissionDrawerInfo() {
+            const satEl = document.getElementById('drawerSelectedSat');
+            const obsEl = document.getElementById('drawerObserver');
+            const receiverEl = document.getElementById('drawerReceiverSummary');
+            const nextEl = document.getElementById('drawerNextPassSummary');
+            if (satEl) satEl.textContent = satellites[selectedSatellite]?.name || 'Unknown';
+            const lat = parseFloat(document.getElementById('obsLat')?.value);
+            const lon = parseFloat(document.getElementById('obsLon')?.value);
+            if (obsEl) {
+                obsEl.textContent = Number.isFinite(lat) && Number.isFinite(lon)
+                    ? `${lat.toFixed(4)}, ${lon.toFixed(4)}`
+                    : 'Observer unavailable';
+            }
+            if (receiverEl) {
+                const receiver = getSelectedReceiverConfig();
+                receiverEl.textContent = receiver.label || 'Detecting...';
+            }
+            if (nextEl) {
+                const nextPass = passes[0];
+                nextEl.textContent = nextPass
+                    ? `${(nextPass.aosTime || nextPass.startTimeISO || '').split('T')[1]?.substring(0, 5) || '--:--'} UTC · ${nextPass.maxEl?.toFixed ? nextPass.maxEl.toFixed(0) : '--'}°`
+                    : 'Calculating...';
+            }
+        }
+
+        function onReceiverSelectionChange() {
+            const select = document.getElementById('gsReceiverSelect');
+            const typeEl = document.getElementById('gsReceiverType');
+            const noteEl = document.getElementById('gsReceiverNote');
+            const receiver = getSelectedReceiverConfig();
+            if (typeEl) typeEl.textContent = receiver.sdr_type.toUpperCase();
+            if (noteEl) noteEl.textContent = `Ground station will claim ${receiver.label} when the scheduler is enabled.`;
+            if (select) {
+                localStorage.setItem(RECEIVER_STORAGE_KEY, `${receiver.sdr_type}:${receiver.device}`);
+            }
+            updateMissionDrawerInfo();
+        }
+
+        async function loadReceiverDevices() {
+            const select = document.getElementById('gsReceiverSelect');
+            const typeEl = document.getElementById('gsReceiverType');
+            const noteEl = document.getElementById('gsReceiverNote');
+            if (!select) return;
+            try {
+                const { data: devices } = await fetchJsonWithTimeout('/devices');
+                receiverDevices = Array.isArray(devices) ? devices : [];
+                if (!receiverDevices.length) {
+                    select.innerHTML = '<option value="0">No SDRs detected</option>';
+                    if (typeEl) typeEl.textContent = 'RTLSDR';
+                    if (noteEl) noteEl.textContent = 'No SDR devices were detected. Scheduler will fall back to receiver 0.';
+                    updateMissionDrawerInfo();
+                    return;
+                }
+                const saved = localStorage.getItem(RECEIVER_STORAGE_KEY);
+                select.innerHTML = receiverDevices.map(device => {
+                    const label = `${device.index}: ${device.name || 'SDR'}${device.serial && device.serial !== 'N/A' && device.serial !== 'Unknown' ? ` (${device.serial})` : ''}`;
+                    return `<option value="${device.index}" data-sdr-type="${_esc(device.sdr_type || 'rtlsdr')}">${_esc(label)}</option>`;
+                }).join('');
+                if (saved) {
+                    const [savedType, savedIndex] = saved.split(':');
+                    const match = Array.from(select.options).find(opt =>
+                        opt.value === savedIndex && opt.dataset.sdrType === savedType
+                    );
+                    if (match) select.value = match.value;
+                }
+                onReceiverSelectionChange();
+            } catch (_) {
+                const saved = localStorage.getItem(RECEIVER_STORAGE_KEY);
+                if (saved) {
+                    const [savedType, savedIndex] = saved.split(':');
+                    select.innerHTML = `<option value="${_esc(savedIndex || '0')}" data-sdr-type="${_esc(savedType || 'rtlsdr')}">Saved receiver ${_esc(savedIndex || '0')}</option>`;
+                    if (typeEl) typeEl.textContent = String(savedType || 'rtlsdr').toUpperCase();
+                    if (noteEl) noteEl.textContent = 'Live SDR detection is taking too long. Using the last saved receiver for now.';
+                } else {
+                    select.innerHTML = '<option value="0">Receiver detection timed out</option>';
+                    if (typeEl) typeEl.textContent = 'RTLSDR';
+                    if (noteEl) noteEl.textContent = 'Live SDR detection timed out. Ground station will try receiver 0 until the next refresh.';
+                }
+                setTimeout(loadReceiverDevices, 6000);
+                updateMissionDrawerInfo();
+            }
+        }
+
+        function renderTrackedSatelliteCatalog() {
+            const list = document.getElementById('satTrackingList');
+            if (!list) return;
+            if (!trackedSatelliteCatalog.length) {
+                list.innerHTML = '<div class="drawer-empty-state">No tracked satellites configured yet.</div>';
+                return;
+            }
+            list.innerHTML = trackedSatelliteCatalog.map((sat, idx) => `
+                <div class="drawer-sat-item ${sat.builtin ? 'builtin' : ''}">
+                    <label class="drawer-sat-label">
+                        <input type="checkbox" ${sat.enabled ? 'checked' : ''} onchange="toggleTrackedSatellite(${idx})">
+                        <span class="drawer-sat-copy">
+                            <span class="drawer-sat-name">${_esc(sat.name)}</span>
+                            <span class="drawer-sat-meta">#${_esc(String(sat.norad_id))}${sat.builtin ? ' • builtin' : ''}</span>
+                        </span>
+                    </label>
+                    ${sat.builtin ? '' : `<button class="drawer-sat-remove" onclick="removeTrackedSatellite(${idx})" title="Remove tracked satellite">×</button>`}
+                </div>
+            `).join('');
+        }
+
+        async function loadTrackedSatelliteCatalog() {
+            try {
+                const { data } = await fetchJsonWithTimeout('/satellite/tracked');
+                if (data.status === 'success' && Array.isArray(data.satellites)) {
+                    trackedSatelliteCatalog = data.satellites;
+                }
+            } catch (_) {
+                if (!trackedSatelliteCatalog.length) {
+                    trackedSatelliteCatalog = Object.entries(satellites).map(([norad, sat]) => ({
+                        norad_id: parseInt(norad, 10),
+                        name: sat.name,
+                        builtin: true,
+                        enabled: true,
+                    }));
+                }
+                setTimeout(loadTrackedSatelliteCatalog, 6000);
+            }
+            renderTrackedSatelliteCatalog();
+        }
+
+        window.toggleTrackedSatellite = function (idx) {
+            const sat = trackedSatelliteCatalog[idx];
+            if (!sat) return;
+            const nextEnabled = !sat.enabled;
+            fetch(`/satellite/tracked/${sat.norad_id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: nextEnabled }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        throw new Error(data.message || data.error || 'Failed to update satellite');
+                    }
+                    showSatelliteCommandStatus(`${sat.name} ${nextEnabled ? 'enabled' : 'disabled'} for tracking.`, 'success');
+                    loadTrackedSatelliteCatalog();
+                    loadDashboardSatellites();
+                })
+                .catch((err) => {
+                    showSatelliteCommandStatus(err.message || 'Failed to update tracked satellite.', 'error');
+                    loadTrackedSatelliteCatalog();
+                });
+        };
+
+        window.removeTrackedSatellite = function (idx) {
+            const sat = trackedSatelliteCatalog[idx];
+            if (!sat || sat.builtin) return;
+            fetch(`/satellite/tracked/${sat.norad_id}`, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        throw new Error(data.message || data.error || 'Failed to remove satellite');
+                    }
+                    showSatelliteCommandStatus(`${sat.name} removed from the tracked catalog.`, 'success');
+                    loadTrackedSatelliteCatalog();
+                    loadDashboardSatellites();
+                })
+                .catch((err) => {
+                    showSatelliteCommandStatus(err.message || 'Failed to remove tracked satellite.', 'error');
+                });
+        };
+
+        window.showAddSatelliteModal = function () {
+            const modal = document.getElementById('satModal');
+            if (modal) modal.classList.add('active');
+        };
+
+        window.closeSatModal = function () {
+            const modal = document.getElementById('satModal');
+            if (modal) modal.classList.remove('active');
+        };
+
+        window.switchSatModalTab = function (tab) {
+            document.querySelectorAll('.sat-management-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+            document.querySelectorAll('.sat-management-section').forEach(section => {
+                section.classList.toggle('active', section.id === (tab === 'tle' ? 'tleSection' : 'celestrakSection'));
+            });
+        };
+
+        window.addFromTLE = function () {
+            const tleText = document.getElementById('tleInput')?.value.trim();
+            if (!tleText) {
+                showSatelliteCommandStatus('Paste one or more complete TLE triplets before adding.', 'warn');
+                return;
+            }
+            const lines = tleText.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+            const toAdd = [];
+            for (let i = 0; i < lines.length; i += 3) {
+                if (i + 2 >= lines.length) break;
+                const [name, line1, line2] = [lines[i], lines[i + 1], lines[i + 2]];
+                if (line1.startsWith('1 ') && line2.startsWith('2 ')) {
+                    const norad = line1.substring(2, 7).trim();
+                    if (!trackedSatelliteCatalog.find(s => String(s.norad_id) === norad)) {
+                        toAdd.push({
+                            norad_id: norad,
+                            name,
+                            tle1: line1,
+                            tle2: line2,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+            if (!toAdd.length) {
+                showSatelliteCommandStatus('No valid TLE triplets were found in that input.', 'warn');
+                return;
+            }
+            fetch('/satellite/tracked', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(toAdd),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        throw new Error(data.message || data.error || 'Failed to add satellites');
+                    }
+                    const input = document.getElementById('tleInput');
+                    if (input) input.value = '';
+                    closeSatModal();
+                    showSatelliteCommandStatus(`Added ${data.added || toAdd.length} satellite(s) from TLE data.`, 'success');
+                    loadTrackedSatelliteCatalog();
+                    loadDashboardSatellites();
+                })
+                .catch((err) => {
+                    showSatelliteCommandStatus(err.message || 'Failed to save TLE satellites.', 'error');
+                });
+        };
+
+        window.fetchCelestrak = function () {
+            showAddSatelliteModal();
+            switchSatModalTab('celestrak');
+        };
+
+        window.fetchCelestrakCategory = function (category) {
+            const status = document.getElementById('celestrakStatus');
+            if (status) {
+                status.dataset.level = 'info';
+                status.textContent = `Fetching ${category}...`;
+            }
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+            fetch(`/satellite/celestrak/${category}`, { signal: controller.signal })
+                .then(r => r.json())
+                .then(async data => {
+                    clearTimeout(timeout);
+                    if (data.status !== 'success' || !Array.isArray(data.satellites)) {
+                        throw new Error(data.message || 'Failed to fetch CelesTrak data');
+                    }
+                    const toAdd = data.satellites
+                        .filter(sat => !trackedSatelliteCatalog.find(existing => String(existing.norad_id) === String(sat.norad)))
+                        .map(sat => ({
+                            norad_id: String(sat.norad),
+                            name: sat.name,
+                            tle1: sat.tle1,
+                            tle2: sat.tle2,
+                            enabled: false,
+                        }));
+                    if (!toAdd.length) {
+                        if (status) {
+                            status.dataset.level = 'success';
+                            status.textContent = `All ${data.satellites.length} satellites in ${category} are already tracked.`;
+                        }
+                        return;
+                    }
+                    const response = await fetch('/satellite/tracked?include_satellites=false', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(toAdd),
+                    });
+                    const result = await response.json();
+                    if (!response.ok || result.status !== 'success') {
+                        throw new Error(result.message || result.error || `Failed to import ${category}`);
+                    }
+                    if (status) {
+                        status.dataset.level = 'success';
+                        status.textContent = `Imported ${result.added || toAdd.length} ${category} satellites.`;
+                    }
+                    showSatelliteCommandStatus(`Imported ${result.added || toAdd.length} ${category} satellites from CelesTrak.`, 'success');
+                    loadTrackedSatelliteCatalog();
+                    loadDashboardSatellites();
+                })
+                .catch((err) => {
+                    clearTimeout(timeout);
+                    const msg = err?.name === 'AbortError' ? 'CelesTrak request timed out.' : (err.message || 'Failed to fetch CelesTrak category.');
+                    if (status) {
+                        status.dataset.level = 'error';
+                        status.textContent = msg;
+                    }
+                    showSatelliteCommandStatus(msg, 'error');
+                });
+        };
+
+        window.updateTLE = function () {
+            showSatelliteCommandStatus('Refreshing orbital elements...', 'info');
+            fetch('/satellite/update-tle', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        throw new Error(data.message || data.error || 'Failed to refresh TLE data');
+                    }
+                    showSatelliteCommandStatus('Orbital elements refreshed successfully.', 'success');
+                    loadDashboardSatellites();
+                })
+                .catch((err) => {
+                    showSatelliteCommandStatus(err.message || 'Failed to refresh TLE data.', 'error');
+                });
+        };
+
+        function scheduleDashboardDataRetry(delayMs = 3500) {
+            if (_dashboardRetryAttempts >= 3) return;
+            if (_dashboardRetryTimer) clearTimeout(_dashboardRetryTimer);
+            _dashboardRetryTimer = setTimeout(() => {
+                const txReady = !!document.querySelector('#transmittersList .tx-item');
+                const needsPassRetry = passes.length === 0 && !_passAbortController;
+                const needsTelemetryRetry = !latestLivePosition;
+                const needsTxRetry = !txReady;
+                if (!(needsPassRetry || needsTelemetryRetry || needsTxRetry)) {
+                    _dashboardRetryAttempts = 0;
+                    return;
+                }
+                _dashboardRetryAttempts += 1;
+                if (needsPassRetry) calculatePasses();
+                if (needsTelemetryRetry) fetchCurrentTelemetry();
+                if (needsTxRetry) loadTransmitters(selectedSatellite);
+                updateMissionDrawerInfo();
+                if (_dashboardRetryAttempts < 3) {
+                    scheduleDashboardDataRetry(4500);
+                }
+            }, delayMs);
+        }
+
+        function drawCurrentPositionOnPolar(az, el, color) {
+            const canvas = document.getElementById('polarPlot');
+            const ctx = canvas.getContext('2d');
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = Math.max(10, Math.min(cx, cy) - 40);
+
+            const cs = getComputedStyle(document.documentElement);
+            const accentRed = cs.getPropertyValue('--accent-red').trim() || '#ff4444';
+            const accentGreen = cs.getPropertyValue('--accent-green').trim() || '#00ff88';
+            const textPrimary = cs.getPropertyValue('--text-primary').trim() || '#fff';
+
+            if (el > -5) {
+                const posEl = Math.max(0, el);
+                const r = radius * (1 - posEl / 90);
+                const angle = (az - 90) * Math.PI / 180;
+                const x = cx + r * Math.cos(angle);
+                const y = cy + r * Math.sin(angle);
+
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, 25);
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = 0.4;
+                ctx.beginPath();
+                ctx.arc(x, y, 25, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+
+                ctx.beginPath();
+                ctx.arc(x, y, 10, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = textPrimary;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                ctx.font = 'bold 11px Orbitron';
+                ctx.fillStyle = textPrimary;
+                ctx.textAlign = 'center';
+                ctx.fillText(satellites[selectedSatellite]?.name || 'SAT', x, y - 20);
+
+                ctx.font = '10px Roboto Condensed';
+                ctx.fillStyle = el > 0 ? accentGreen : accentRed;
+                ctx.fillText(el.toFixed(1) + '°', x, y + 25);
+            }
+        }
+    </script>
+
+    <!-- Settings Modal -->
+    {% include 'partials/settings-modal.html' %}
+
+    <!-- Help Modal -->
+    {% include 'partials/help-modal.html' %}
+
+    <script src="{{ url_for('static', filename='js/core/voice-alerts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/keyboard-shortcuts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/cheat-sheets.js') }}"></script>
+    {% include 'partials/nav-utility-modals.html' %}
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/map-utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modes/ground_station_waterfall.js') }}"></script>
+    <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            if (typeof VoiceAlerts !== 'undefined') {
+                VoiceAlerts.init({ startStreams: false });
+                VoiceAlerts.scheduleStreamStart(20000);
+            }
+            if (typeof KeyboardShortcuts !== 'undefined') KeyboardShortcuts.init();
+        });
+    </script>
+
+    <script>
+    // -------------------------------------------------------------------------
+    // Ground Station Panel — inline controller
+    // -------------------------------------------------------------------------
+    (function () {
+        'use strict';
+
+        let _gsEnabled = false;
+        let _gsEventSource = null;
+        let _editingNorad = null;   // norad_id being edited, or null for new
+
+        // -----------------------------------------------------------------------
+        // Init
+        // -----------------------------------------------------------------------
+
+        function gsInit() {
+            gsLoadStatus();
+            gsLoadProfiles();
+            gsLoadUpcoming();
+            gsLoadRecordings();
+            gsConnectSSE();
+        }
+
+        // -----------------------------------------------------------------------
+        // Scheduler status
+        // -----------------------------------------------------------------------
+
+        function gsLoadStatus() {
+            fetch('/ground_station/scheduler/status')
+                .then(r => r.json())
+                .then(data => { _gsEnabled = data.enabled; _applyStatus(data); })
+                .catch(() => {});
+        }
+
+        function _applyStatus(data) {
+            const statusEl  = document.getElementById('gsSchedulerStatus');
+            const enableBtn = document.getElementById('gsEnableBtn');
+            const disableBtn = document.getElementById('gsDisableBtn');
+            const stopBtn   = document.getElementById('gsStopBtn');
+            const activeRow = document.getElementById('gsActiveRow');
+            const indicator = document.getElementById('gsIndicator');
+            if (!statusEl) return;
+            _gsEnabled = data.enabled;
+            statusEl.textContent = data.enabled
+                ? (data.active_observation ? 'CAPTURING' : 'ACTIVE') : 'IDLE';
+            statusEl.style.color = data.enabled
+                ? (data.active_observation ? 'var(--accent-green)' : 'var(--accent-cyan)')
+                : 'var(--text-secondary)';
+            if (indicator) {
+                indicator.style.background = data.enabled
+                    ? (data.active_observation ? '#00ff88' : '#00d4ff') : '';
+            }
+            if (enableBtn)  enableBtn.style.display  = data.enabled ? 'none' : '';
+            if (disableBtn) disableBtn.style.display = data.enabled ? '' : 'none';
+            if (stopBtn)    stopBtn.style.display    = data.active_observation ? '' : 'none';
+            if (activeRow) {
+                activeRow.style.display = data.active_observation ? '' : 'none';
+                if (data.active_observation) {
+                    const satEl = document.getElementById('gsActiveSat');
+                    if (satEl) satEl.textContent = data.active_observation.satellite || '-';
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Observation profiles
+        // -----------------------------------------------------------------------
+
+        function gsLoadProfiles() {
+            fetch('/ground_station/profiles')
+                .then(r => r.json())
+                .then(profiles => _renderProfiles(profiles))
+                .catch(() => { _renderProfiles([]); });
+        }
+
+        function _renderProfiles(profiles) {
+            const el = document.getElementById('gsProfileList');
+            if (!el) return;
+            if (!profiles.length) {
+                el.innerHTML = '<div style="text-align:center;color:var(--text-secondary);font-size:10px;padding:6px 0;">No profiles — click + ADD to create one</div>';
+                return;
+            }
+            el.innerHTML = profiles.map(p => {
+                const enCls = p.enabled ? 'gs-profile-enabled' : '';
+                const taskSummary = _formatTaskSummary(p.tasks || []);
+                return `<div class="gs-profile-item">
+                    <span class="prof-name ${enCls}" title="NORAD ${p.norad_id}${taskSummary ? ' • ' + taskSummary : ''}">${_esc(p.name)}</span>
+                    <span class="prof-freq">${(+p.frequency_mhz).toFixed(3)}</span>
+                    <div class="prof-actions">
+                        <button onclick="gsEditProfile(${p.norad_id})">EDIT</button>
+                        <button class="del" onclick="gsDeleteProfile(${p.norad_id})">✕</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        window.gsShowProfileForm = function (norad, name, freqMhz, decoder, minEl, gain, recordIQ, tasks) {
+            _editingNorad = norad || null;
+            const form  = document.getElementById('gsProfileForm');
+            const title = document.getElementById('gsProfileFormTitle');
+            const err   = document.getElementById('gsProfileError');
+            if (!form) return;
+
+            // Pre-fill with provided values OR pull from current satellite selection
+            const noradId  = norad  || (typeof selectedSatellite !== 'undefined' ? selectedSatellite : '');
+            const satName  = name   || (typeof satellites !== 'undefined' && satellites[noradId] ? satellites[noradId].name : 'Unknown');
+            const freq     = freqMhz != null ? freqMhz : _guessFrequency();
+
+            document.getElementById('gsProfNorad').value    = noradId;
+            document.getElementById('gsProfSatName').textContent = satName;
+            document.getElementById('gsProfFreq').value     = freq != null ? freq : '';
+            document.getElementById('gsProfDecoder').value  = decoder  || _guessDecoder();
+            document.getElementById('gsProfMinEl').value    = minEl    != null ? minEl    : 10;
+            document.getElementById('gsProfGain').value     = gain     != null ? gain     : 40;
+            document.getElementById('gsProfRecordIQ').checked = !!recordIQ;
+            _applyTaskSelection(Array.isArray(tasks) ? tasks : _tasksFromLegacyDecoder(decoder || _guessDecoder(), !!recordIQ));
+
+            if (title) title.textContent = _editingNorad ? 'EDIT PROFILE' : 'NEW PROFILE';
+            if (err) { err.style.display = 'none'; err.textContent = ''; }
+            form.style.display = '';
+            document.getElementById('gsAddProfileBtn').style.display = 'none';
+        };
+
+        window.gsEditProfile = function (norad) {
+            fetch(`/ground_station/profiles/${norad}`)
+                .then(r => r.json())
+                .then(p => {
+                    gsShowProfileForm(p.norad_id, p.name, p.frequency_mhz,
+                        p.decoder_type, p.min_elevation, p.gain, p.record_iq, p.tasks);
+                })
+                .catch(() => {});
+        };
+
+        window.gsHideProfileForm = function () {
+            const form = document.getElementById('gsProfileForm');
+            if (form) form.style.display = 'none';
+            document.getElementById('gsAddProfileBtn').style.display = '';
+            _editingNorad = null;
+        };
+
+        window.gsSaveProfile = function () {
+            const norad = parseInt(document.getElementById('gsProfNorad').value);
+            const freq  = parseFloat(document.getElementById('gsProfFreq').value);
+            const errEl = document.getElementById('gsProfileError');
+            if (!norad || isNaN(norad)) { _showFormErr('Select a satellite first'); return; }
+            if (!freq  || isNaN(freq))  { _showFormErr('Enter a valid frequency'); return; }
+
+            const name = document.getElementById('gsProfSatName').textContent || `SAT-${norad}`;
+            const tasks = _collectSelectedTasks();
+            const payload = {
+                norad_id:      norad,
+                name:          name,
+                frequency_mhz: freq,
+                decoder_type:  document.getElementById('gsProfDecoder').value,
+                min_elevation: parseFloat(document.getElementById('gsProfMinEl').value) || 10,
+                gain:          parseFloat(document.getElementById('gsProfGain').value) || 40,
+                record_iq:     document.getElementById('gsProfRecordIQ').checked,
+                enabled:       true,
+                tasks:         tasks,
+            };
+
+            fetch('/ground_station/profiles', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+                .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.error || 'Save failed'); }))
+                .then(() => { gsHideProfileForm(); gsLoadProfiles(); })
+                .catch(e => _showFormErr(e.message || 'Save failed'));
+        };
+
+        window.gsDeleteProfile = function (norad) {
+            if (!confirm(`Delete profile for NORAD ${norad}?`)) return;
+            fetch(`/ground_station/profiles/${norad}`, {method: 'DELETE'})
+                .then(() => gsLoadProfiles())
+                .catch(() => {});
+        };
+
+        function _showFormErr(msg) {
+            const el = document.getElementById('gsProfileError');
+            if (!el) return;
+            el.textContent = msg;
+            el.style.display = '';
+        }
+
+        function _tasksFromLegacyDecoder(decoder, recordIQ) {
+            const tasks = [];
+            const value = String(decoder || 'fm').toLowerCase();
+            if (value === 'afsk' || value === 'fm') tasks.push('telemetry_ax25');
+            else if (value === 'gmsk') tasks.push('telemetry_gmsk');
+            else if (value === 'bpsk') tasks.push('telemetry_bpsk');
+            if (recordIQ || value === 'iq_only') tasks.push('record_iq');
+            return tasks;
+        }
+
+        function _collectSelectedTasks() {
+            const tasks = [];
+            if (document.getElementById('gsTaskTelemetryAx25')?.checked) tasks.push('telemetry_ax25');
+            if (document.getElementById('gsTaskTelemetryGmsk')?.checked) tasks.push('telemetry_gmsk');
+            if (document.getElementById('gsTaskTelemetryBpsk')?.checked) tasks.push('telemetry_bpsk');
+            if (document.getElementById('gsTaskWeatherMeteor')?.checked) tasks.push('weather_meteor_lrpt');
+            if (document.getElementById('gsTaskRecordIq')?.checked || document.getElementById('gsProfRecordIQ')?.checked) tasks.push('record_iq');
+            return tasks;
+        }
+
+        function _applyTaskSelection(tasks) {
+            const set = new Set(tasks || []);
+            const ax25 = document.getElementById('gsTaskTelemetryAx25');
+            const gmsk = document.getElementById('gsTaskTelemetryGmsk');
+            const bpsk = document.getElementById('gsTaskTelemetryBpsk');
+            const meteor = document.getElementById('gsTaskWeatherMeteor');
+            const recordIq = document.getElementById('gsTaskRecordIq');
+            if (ax25) ax25.checked = set.has('telemetry_ax25');
+            if (gmsk) gmsk.checked = set.has('telemetry_gmsk');
+            if (bpsk) bpsk.checked = set.has('telemetry_bpsk');
+            if (meteor) meteor.checked = set.has('weather_meteor_lrpt');
+            if (recordIq) recordIq.checked = set.has('record_iq');
+        }
+
+        function _formatTaskSummary(tasks) {
+            const labels = [];
+            const set = new Set(tasks || []);
+            if (set.has('telemetry_ax25')) labels.push('AX25');
+            if (set.has('telemetry_gmsk')) labels.push('GMSK');
+            if (set.has('telemetry_bpsk')) labels.push('BPSK');
+            if (set.has('weather_meteor_lrpt')) labels.push('METEOR');
+            if (set.has('record_iq')) labels.push('IQ');
+            return labels.join(', ');
+        }
+
+        // Try to get a sensible default frequency from the SatNOGS transmitter list
+        function _guessFrequency() {
+            const items = document.querySelectorAll('#transmittersList .tx-item');
+            for (const item of items) {
+                const freq = item.querySelector('.tx-freq');
+                if (!freq) continue;
+                const m = freq.textContent.match(/↓\s*([\d.]+)/);
+                if (m) return parseFloat(m[1]);
+            }
+            return null;
+        }
+
+        function _guessDecoder() {
+            const items = document.querySelectorAll('#transmittersList .tx-item');
+            for (const item of items) {
+                const freq = item.querySelector('.tx-freq');
+                if (!freq) continue;
+                const txt = freq.textContent.toLowerCase();
+                if (txt.includes('ax.25') || txt.includes('afsk')) return 'afsk';
+                if (txt.includes('gmsk')) return 'gmsk';
+                if (txt.includes('bpsk')) return 'bpsk';
+            }
+            return 'fm';
+        }
+
+        // Update form satellite when user changes the satellite dropdown
+        window.gsOnSatelliteChange = function () {
+            const form = document.getElementById('gsProfileForm');
+            if (!form || form.style.display === 'none' || _editingNorad) return;
+            // Re-open form with new satellite context
+            gsShowProfileForm();
+        };
+
+        // -----------------------------------------------------------------------
+        // Upcoming passes
+        // -----------------------------------------------------------------------
+
+        function gsLoadUpcoming() {
+            fetch('/ground_station/scheduler/observations')
+                .then(r => r.json())
+                .then(obs => {
+                    const el = document.getElementById('gsUpcomingList');
+                    if (!el) return;
+                    const upcoming = obs.filter(o => o.status === 'scheduled').slice(0, 5);
+                    if (!upcoming.length) {
+                        el.innerHTML = '<div style="text-align:center;color:var(--text-secondary);font-size:10px;padding:4px 0;">No observations scheduled.<br>Enable scheduler to auto-observe.</div>';
+                        return;
+                    }
+                    el.innerHTML = upcoming.map(o => {
+                        const dt = new Date(o.aos);
+                        const timeStr = dt.toUTCString().replace('GMT','UTC').slice(17,25);
+                        return `<div class="gs-obs-item">
+                            <span class="sat-name">${_esc(o.satellite)}</span>
+                            <span class="obs-time">${timeStr} / ${(+o.max_el).toFixed(0)}°</span>
+                        </div>`;
+                    }).join('');
+                })
+                .catch(() => {});
+        }
+
+        // -----------------------------------------------------------------------
+        // Recordings
+        // -----------------------------------------------------------------------
+
+        function gsLoadRecordings() {
+            fetch('/ground_station/recordings')
+                .then(r => r.json())
+                .then(recs => {
+                    const panel = document.getElementById('gsRecordingsPanel');
+                    const list  = document.getElementById('gsRecordingsList');
+                    if (!panel || !list) return;
+                    if (!recs.length) { panel.style.display = 'none'; return; }
+                    panel.style.display = '';
+                    list.innerHTML = recs.slice(0, 10).map(r => {
+                        const kb = Math.round((r.size_bytes || 0) / 1024);
+                        const fname = (r.sigmf_data_path || '').split('/').pop();
+                        return `<div class="gs-recording-item">
+                            <a href="/ground_station/recordings/${r.id}/download/data" title="${_esc(fname)}">${_esc(fname.slice(0, 22))}</a>
+                            <span style="color:var(--text-secondary);font-size:9px;">${kb} KB</span>
+                        </div>`;
+                    }).join('');
+                })
+                .catch(() => {});
+        }
+
+        function gsLoadOutputs() {
+            const norad = typeof selectedSatellite !== 'undefined' ? selectedSatellite : null;
+            const panel = document.getElementById('gsOutputsPanel');
+            const list = document.getElementById('gsOutputsList');
+            const status = document.getElementById('gsDecodeStatus');
+            if (!panel || !list || !norad) return;
+            gsLoadDecodeJobs(norad);
+            fetch(`/ground_station/outputs?norad_id=${encodeURIComponent(norad)}&type=image`)
+                .then(r => r.json())
+                .then(outputs => {
+                    if (!Array.isArray(outputs) || !outputs.length) {
+                        if (!status || !status.textContent) {
+                            panel.style.display = 'none';
+                            if (status) status.style.display = 'none';
+                        }
+                        return;
+                    }
+                    panel.style.display = '';
+                    list.innerHTML = outputs.slice(0, 10).map(o => {
+                        const meta = o.metadata || {};
+                        const filename = (o.file_path || '').split('/').pop() || `output-${o.id}`;
+                        const product = meta.product ? _esc(String(meta.product)) : 'Image';
+                        return `<div class="gs-recording-item">
+                            <a href="/ground_station/outputs/${o.id}/download" title="${_esc(filename)}">${_esc(filename.slice(0, 24))}</a>
+                            <span style="color:var(--text-secondary);font-size:9px;">${product}</span>
+                        </div>`;
+                    }).join('');
+                })
+                .catch(() => {});
+        }
+        window.gsLoadOutputs = gsLoadOutputs;
+
+        function gsLoadDecodeJobs(norad) {
+            const panel = document.getElementById('gsOutputsPanel');
+            const status = document.getElementById('gsDecodeStatus');
+            if (!panel || !status || !norad) return;
+            fetch(`/ground_station/decode-jobs?norad_id=${encodeURIComponent(norad)}&backend=meteor_lrpt&limit=1`)
+                .then(r => r.json())
+                .then(jobs => {
+                    if (!Array.isArray(jobs) || !jobs.length) return;
+                    const job = jobs[0];
+                    const details = job.details || {};
+                    const message = _formatDecodeJobSummary(job, details);
+                    if (!message) return;
+                    const meta = _formatDecodeJobMeta(details);
+                    status.textContent = meta ? `${message} • ${meta}` : message;
+                    status.style.display = '';
+                    panel.style.display = '';
+                })
+                .catch(() => {});
+        }
+
+        function _updateDecodeStatus(data) {
+            const panel = document.getElementById('gsOutputsPanel');
+            const status = document.getElementById('gsDecodeStatus');
+            if (!panel || !status) return;
+            if (data && data.norad_id && parseInt(data.norad_id) !== parseInt(selectedSatellite)) return;
+
+            if (!data) {
+                status.textContent = '';
+                status.style.display = 'none';
+                return;
+            }
+
+            const message = data.message || data.status || '';
+            if (!message) {
+                status.textContent = '';
+                status.style.display = 'none';
+                return;
+            }
+
+            status.textContent = message;
+            panel.style.display = '';
+            status.style.display = '';
+            if (data.type === 'weather_decode_complete' || data.type === 'weather_decode_failed') {
+                setTimeout(() => {
+                    if (status.textContent === message) {
+                        status.textContent = '';
+                        status.style.display = 'none';
+                    }
+                }, 8000);
+            }
+        }
+
+        function _formatDecodeJobSummary(job, details) {
+            if (job.status === 'queued') return 'Decode queued';
+            if (job.status === 'decoding') return details.message || 'Decode in progress';
+            if (job.status === 'complete') {
+                const count = details.output_count;
+                return count ? `Decode complete (${count} image${count === 1 ? '' : 's'})` : 'Decode complete';
+            }
+            if (job.status === 'failed') {
+                const reasonLabels = {
+                    sample_rate_too_low: 'Sample rate too low',
+                    invalid_sample_rate: 'Sample rate rejected',
+                    recording_too_small: 'Recording too small',
+                    satdump_failed: 'SatDump failed',
+                    permission_error: 'Permission error',
+                    input_missing: 'Input not accessible',
+                    missing_recording: 'Recording missing',
+                    no_imagery_produced: 'No imagery produced',
+                };
+                return job.error_message || reasonLabels[details.reason] || details.message || 'Decode failed';
+            }
+            return '';
+        }
+
+        function _formatDecodeJobMeta(details) {
+            const parts = [];
+            if (details.sample_rate) parts.push(`${Number(details.sample_rate).toLocaleString()} Hz`);
+            if (details.file_size_human) parts.push(details.file_size_human);
+            return parts.join(' / ');
+        }
+
+        // -----------------------------------------------------------------------
+        // SSE
+        // -----------------------------------------------------------------------
+
+        function gsConnectSSE() {
+            if (_gsEventSource) _gsEventSource.close();
+            _gsEventSource = new EventSource('/ground_station/stream');
+            _gsEventSource.onmessage = (evt) => {
+                try {
+                    const data = JSON.parse(evt.data);
+                    if (data.type === 'keepalive') return;
+                    _handleGSEvent(data);
+                } catch (e) {}
+            };
+            _gsEventSource.onerror = () => { setTimeout(gsConnectSSE, 5000); };
+        }
+
+        function _handleGSEvent(data) {
+            switch (data.type) {
+                case 'observation_started':
+                    gsLoadStatus(); gsLoadUpcoming(); break;
+                case 'observation_complete':
+                case 'observation_failed':
+                case 'observation_skipped':
+                    gsLoadStatus(); gsLoadUpcoming(); gsLoadRecordings(); gsLoadOutputs(); break;
+                case 'iq_bus_started':
+                    _showWaterfall(true);
+                    if (window.GroundStationWaterfall) {
+                        GroundStationWaterfall.setCenterFreq(data.center_mhz, data.span_mhz);
+                        GroundStationWaterfall.connect();
+                    }
+                    break;
+                case 'iq_bus_stopped':
+                    setTimeout(() => _showWaterfall(false), 500);
+                    if (window.GroundStationWaterfall) GroundStationWaterfall.disconnect();
+                    break;
+                case 'doppler_update':   _updateDoppler(data); break;
+                case 'recording_complete': gsLoadRecordings(); break;
+                case 'weather_decode_started':
+                case 'weather_decode_progress':
+                    _updateDecodeStatus(data); break;
+                case 'weather_decode_complete':
+                case 'weather_decode_failed':
+                    _updateDecodeStatus(data);
+                    gsLoadOutputs(); break;
+                case 'packet_decoded':   _appendPacket(data); break;
+            }
+        }
+
+        function _showWaterfall(show) {
+            const panel = document.getElementById('gsWaterfallPanel');
+            if (panel) panel.style.display = show ? '' : 'none';
+        }
+
+        function _updateDoppler(data) {
+            const row = document.getElementById('gsDopplerRow');
+            const el  = document.getElementById('gsDopplerShift');
+            if (!row || !el) return;
+            row.style.display = '';
+            const hz = Math.round(data.shift_hz || 0);
+            el.textContent = (hz >= 0 ? '+' : '') + hz + ' Hz';
+        }
+
+        function _packetEmptyState() {
+            return '<div class="packet-empty-state">No packets received yet.<br>Run a ground-station observation with telemetry tasks enabled to populate this console.</div>';
+        }
+
+        function _packetSummary(packet) {
+            if (packet.parsed) {
+                try {
+                    const json = JSON.stringify(packet.parsed);
+                    return json.length > 140 ? json.slice(0, 137) + '...' : json;
+                } catch (_) {}
+            }
+            const raw = packet.raw || '';
+            return raw.length > 180 ? raw.slice(0, 177) + '...' : raw || 'Telemetry frame received';
+        }
+
+        function _packetItemHtml(packet, compact = false) {
+            const protocol = packet.protocol ? _esc(String(packet.protocol)) : 'TELEMETRY';
+            const source = packet.source ? ' / ' + _esc(String(packet.source)) : '';
+            const summary = _esc(_packetSummary(packet));
+            const raw = packet.raw ? `<div class="packet-entry-raw">${_esc(String(packet.raw))}</div>` : '';
+            const parsed = packet.parsed ? `<div class="packet-entry-json">${_esc(JSON.stringify(packet.parsed, null, 2))}</div>` : '';
+            return `
+                <div class="packet-entry ${compact ? 'compact' : ''}">
+                    <div class="packet-entry-header">
+                        <div class="packet-entry-protocol">${protocol}${source}</div>
+                        <div class="packet-entry-time">${packet.timeLabel}</div>
+                    </div>
+                    <div class="packet-entry-summary">${summary}</div>
+                    ${compact ? '' : parsed}
+                    ${raw}
+                </div>
+            `;
+        }
+
+        function renderPacketPanels() {
+            const list = document.getElementById('packetList');
+            const modalList = document.getElementById('packetModalList');
+            const countText = packetHistory.length ? `(${packetHistory.length})` : '';
+            const countEl = document.getElementById('packetCount');
+            const modalCountEl = document.getElementById('packetModalCount');
+            if (countEl) countEl.textContent = countText;
+            if (modalCountEl) modalCountEl.textContent = countText;
+
+            if (list) {
+                list.innerHTML = packetHistory.length
+                    ? packetHistory.map(packet => _packetItemHtml(packet, true)).join('')
+                    : _packetEmptyState();
+            }
+            if (modalList) {
+                modalList.innerHTML = packetHistory.length
+                    ? packetHistory.map(packet => _packetItemHtml(packet, false)).join('')
+                    : _packetEmptyState();
+            }
+        }
+
+        function _appendPacket(data) {
+            packetHistory.unshift({
+                protocol: data.protocol || '',
+                source: data.source || '',
+                parsed: data.parsed || null,
+                raw: data.data || '',
+                timeLabel: new Date().toISOString().substring(11, 19) + ' UTC'
+            });
+            if (packetHistory.length > 100) packetHistory.length = 100;
+            renderPacketPanels();
+        }
+
+        window.togglePacketConsoleCollapsed = function () {
+            packetConsoleCollapsed = !packetConsoleCollapsed;
+            const consoleEl = document.getElementById('packetConsole');
+            const btn = document.getElementById('packetConsoleToggleBtn');
+            if (consoleEl) consoleEl.classList.toggle('collapsed', packetConsoleCollapsed);
+            if (btn) btn.textContent = packetConsoleCollapsed ? 'EXPAND' : 'MIN';
+        };
+
+        window.openPacketModal = function () {
+            const modal = document.getElementById('packetModal');
+            if (!modal) return;
+            renderPacketPanels();
+            modal.hidden = false;
+            document.body.style.overflow = 'hidden';
+        };
+
+        window.closePacketModal = function () {
+            const modal = document.getElementById('packetModal');
+            if (!modal || modal.hidden) return;
+            modal.hidden = true;
+            document.body.style.overflow = '';
+        };
+
+        window.clearPacketConsole = function () {
+            packetHistory = [];
+            renderPacketPanels();
+        }
+
+        // -----------------------------------------------------------------------
+        // Button handlers (global scope)
+        // -----------------------------------------------------------------------
+
+        window.gsEnableScheduler = function () {
+            const lat = parseFloat(document.getElementById('obsLat')?.value || 0);
+            const lon = parseFloat(document.getElementById('obsLon')?.value || 0);
+            const receiver = getSelectedReceiverConfig();
+            fetch('/ground_station/scheduler/enable', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    lat,
+                    lon,
+                    device: receiver.device,
+                    sdr_type: receiver.sdr_type,
+                }),
+            })
+                .then(r => r.json())
+                .then(d => { _applyStatus(d); gsLoadUpcoming(); })
+                .catch(() => {});
+        };
+
+        window.gsDisableScheduler = function () {
+            fetch('/ground_station/scheduler/disable', {method: 'POST'})
+                .then(r => r.json())
+                .then(d => { _applyStatus(d); gsLoadUpcoming(); })
+                .catch(() => {});
+        };
+
+        window.gsStopActive = function () {
+            fetch('/ground_station/scheduler/stop', {method: 'POST'})
+                .then(r => r.json())
+                .then(d => { _applyStatus(d); })
+                .catch(() => {});
+        };
+
+        function _esc(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        // Init after DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', gsInit);
+        } else {
+            gsInit();
+        }
+    })();
+    </script>
+</body>
+</html>
